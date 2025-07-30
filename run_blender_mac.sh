@@ -3,6 +3,10 @@
 echo "Starting 3D to 2D Animation Exporter..."
 echo
 
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_SCRIPT="$SCRIPT_DIR/blender_simple.py"
+
 # Find Blender installation on macOS
 BLENDER_PATH=""
 
@@ -16,18 +20,18 @@ fi
 
 if [ -z "$BLENDER_PATH" ]; then
     echo "Blender not found in standard locations."
-    echo "Please install Blender or specify path manually."
-    echo
-    echo "Download Blender: https://www.blender.org/download/"
-    read -p "Press any key to continue..."
+    echo "Please install Blender 4.0+ from: https://www.blender.org/download/"
+    exit 1
+fi
+
+if [ ! -f "$PYTHON_SCRIPT" ]; then
+    echo "Error: blender_simple.py not found in $SCRIPT_DIR"
     exit 1
 fi
 
 echo "Found Blender: $BLENDER_PATH"
-echo "Starting application..."
+echo "Starting with addon..."
 echo
 
-# Run Blender with our script
-"$BLENDER_PATH" --python blender_simple.py
-
-read -p "Press any key to continue..."
+# Run Blender with our addon script
+"$BLENDER_PATH" --python "$PYTHON_SCRIPT"
