@@ -523,6 +523,15 @@ class ANIM_OT_import_model(Operator):
                 if obj.type in ['MESH', 'ARMATURE']:
                     obj.scale = (1.0, 1.0, 1.0)
                     
+            # Встановлюємо вид збоку (-X)
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for space in area.spaces:
+                        if space.type == 'VIEW_3D':
+                            bpy.ops.view3d.view_axis(type='LEFT')
+                            break
+                    break
+                    
             # Налаштовуємо матеріали
             for material in bpy.data.materials:
                 if material.use_nodes:
