@@ -518,6 +518,39 @@ class ANIM_OT_import_model(Operator):
                 if obj.type in ['MESH', 'ARMATURE']:
                     obj.scale = (1.0, 1.0, 1.0)
                     
+            # Налаштовуємо матеріали
+            for material in bpy.data.materials:
+                if material.use_nodes:
+                    nodes = material.node_tree.nodes
+                    
+                    # Знаходимо Principled BSDF
+                    principled = None
+                    for node in nodes:
+                        if node.type == 'BSDF_PRINCIPLED':
+                            principled = node
+                            break
+                    
+                    if principled:
+                        # Встановлюємо параметри
+                        principled.inputs['Metallic'].default_value = 0.0
+                        principled.inputs['Roughness'].default_value = 1.0
+                        principled.inputs['IOR'].default_value = 1.2
+                        
+                        # Видаляємо під'єднання до Alpha та Normal
+                        if principled.inputs['Alpha'].is_linked:
+                            material.node_tree.links.remove(principled.inputs['Alpha'].links[0])
+                        if principled.inputs['Normal'].is_linked:
+                            material.node_tree.links.remove(principled.inputs['Normal'].links[0])
+                    
+                    # Видаляємо непотрібні ноди
+                    nodes_to_remove = []
+                    for node in nodes:
+                        if node.type in ['NORMAL_MAP', 'BUMP']:
+                            nodes_to_remove.append(node)
+                    
+                    for node in nodes_to_remove:
+                        nodes.remove(node)
+                    
             self.report({'INFO'}, f"Imported: {os.path.basename(self.filepath)}")
             return {'FINISHED'}
             
