@@ -23,7 +23,17 @@ class BlenderExporter:
         bpy.ops.object.delete()
         
         bpy.ops.object.light_add(type='SUN', location=(5, 5, 10))
-        bpy.context.active_object.data.energy = 3
+        sun = bpy.context.active_object
+        sun.data.energy = 3
+        sun.data.color = (1.0, 1.0, 1.0)  # Білий колір #FFFFFF
+        
+        # Встановлюємо білий колір світу
+        if bpy.context.scene.world:
+            bpy.context.scene.world.use_nodes = True
+            world_nodes = bpy.context.scene.world.node_tree.nodes
+            bg_node = world_nodes.get('Background')
+            if bg_node:
+                bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # Білий колір #FFFFFF
         
     def setup_camera(self, target_object, angle_type="Фронтальний"):
         if bpy.data.objects.get("Camera"):
@@ -491,6 +501,7 @@ class ANIM_OT_import_model(Operator):
     
     def execute(self, context):
         try:
+            # Очищаємо сцену
             bpy.ops.object.select_all(action='SELECT')
             bpy.ops.object.delete()
             
@@ -502,6 +513,11 @@ class ANIM_OT_import_model(Operator):
                 self.report({'ERROR'}, "Unsupported file format")
                 return {'CANCELLED'}
                 
+            # Нормалізуємо scale всіх об'єктів до 1.0
+            for obj in bpy.data.objects:
+                if obj.type in ['MESH', 'ARMATURE']:
+                    obj.scale = (1.0, 1.0, 1.0)
+                    
             self.report({'INFO'}, f"Imported: {os.path.basename(self.filepath)}")
             return {'FINISHED'}
             
