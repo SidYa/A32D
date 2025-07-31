@@ -341,7 +341,10 @@ class ANIM_OT_export_spritesheet(Operator):
             
             # Create spritesheet using Blender image editor
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
-            frame_files = sorted([f for f in os.listdir(temp_dir) if f.endswith(file_ext.replace('.', ''))])
+            # Сортуємо файли по номеру кадру для правильної послідовності
+            all_files = [f for f in os.listdir(temp_dir) if f.endswith(file_ext.replace('.', ''))]
+            frame_files = sorted(all_files, key=lambda x: int(x.split('_frame_')[1].split('.')[0]) if '_frame_' in x else 0)
+            print(f"Found frame files: {frame_files[:5]}...")  # Показуємо перші 5
             
             if frame_files and len(frame_files) >= frame_count:
                 # Create new image for spritesheet
@@ -362,12 +365,17 @@ class ANIM_OT_export_spritesheet(Operator):
                 # Initialize spritesheet with transparent pixels
                 pixels = [0.0, 0.0, 0.0, 0.0] * (spritesheet_width * spritesheet_height)
                 
-                for i, img in enumerate(frame_images[:frame_count]):
-                    if i >= cols * rows:
-                        break
-                        
-                    col = i % cols
-                    row = i // cols
+                # Перевіряємо послідовність кадрів
+                print(f"Processing {len(frame_images)} frames for {cols}x{rows} grid")
+                
+                for frame_index in range(min(frame_count, len(frame_images), cols * rows)):
+                    img = frame_images[frame_index]
+                    
+                    # Позиція в сітці: зліва направо, зверху вниз
+                    col = frame_index % cols
+                    row = frame_index // cols
+                    
+                    print(f"Frame {frame_index}: position ({col}, {row})")
                     
                     # Get frame pixels
                     frame_pixels = [0.0] * (size * size * 4)
@@ -501,9 +509,6 @@ class ANIM_OT_import_model(Operator):
     
     def execute(self, context):
         try:
-            # Очищаємо сцену
-            bpy.ops.object.select_all(action='SELECT')
-            bpy.ops.object.delete()
             
             if self.filepath.lower().endswith('.fbx'):
                 bpy.ops.import_scene.fbx(filepath=self.filepath)
@@ -631,5 +636,9 @@ def unregister():
     del bpy.types.Scene.anim_exporter
 
 if __name__ == "__main__":
+    # Очищаємо сцену при запуску програми
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+    
     register()
     print("3D to 2D Animation Exporter (Simple) loaded!")
