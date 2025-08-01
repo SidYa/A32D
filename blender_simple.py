@@ -515,6 +515,9 @@ class ANIM_OT_import_model(Operator, ImportHelper):
     
     def execute(self, context):
         try:
+            # Очищуємо сцену та кеш перед імпортом
+            self.clear_scene_and_cache()
+            
             # Обробка множинних файлів (для drag and drop)
             if self.files:
                 import_dir = os.path.dirname(self.filepath)
@@ -588,10 +591,32 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 
                 for node in nodes_to_remove:
                     nodes.remove(node)
-                    
-
     
-
+    def clear_scene_and_cache(self):
+        # Очищуємо всі об'єкти
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete()
+        
+        # Очищуємо анімації
+        for action in bpy.data.actions:
+            bpy.data.actions.remove(action)
+        
+        # Очищуємо матеріали
+        for material in bpy.data.materials:
+            bpy.data.materials.remove(material)
+        
+        # Очищуємо меші
+        for mesh in bpy.data.meshes:
+            bpy.data.meshes.remove(mesh)
+        
+        # Очищуємо арматури
+        for armature in bpy.data.armatures:
+            bpy.data.armatures.remove(armature)
+        
+        # Очищуємо зображення
+        for image in bpy.data.images:
+            if image.users == 0:
+                bpy.data.images.remove(image)
 
 class ANIM_PT_exporter_panel(Panel):
     bl_label = "3D to 2D Animation Exporter"
@@ -605,7 +630,7 @@ class ANIM_PT_exporter_panel(Panel):
         props = context.scene.anim_exporter
         
         box = layout.box()
-        box.label(text="Імпорт моделі:")
+        box.label(text="Імпорт анімації:")
         
         box.operator("anim.import_model", text="Імпорт FBX/GLB", icon='IMPORT')
             
