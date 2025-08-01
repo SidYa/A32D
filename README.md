@@ -16,7 +16,8 @@
 1. Встановіть Blender 4.0+
 2. Запустіть:
    - **Windows**: `run_blender.bat`
-   - **Linux**: `./run_blender.sh`
+   - **Linux**: `./run_blender_linux.sh`
+   - **MacOS**: `./run_blender_mac.sh`
 
 ## Використання
 
