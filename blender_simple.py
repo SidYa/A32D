@@ -5,6 +5,7 @@ import os
 import math
 from bpy.props import StringProperty, EnumProperty, IntProperty
 from bpy.types import Operator, Panel, PropertyGroup
+from bpy_extras.io_utils import ImportHelper
 
 class BlenderExporter:
     def __init__(self):
@@ -168,14 +169,13 @@ class AnimationExporterProperties(PropertyGroup):
             ('1024', "1024x1024", ""),
             ('2048', "2048x2048", "")
         ],
-        default='128'
+        default='512'
     )
     
     frame_count: IntProperty(
         name="Кількість кадрів",
-        default=16,
-        min=1,
-        max=100
+        default=1,
+        min=1
     )
     
     camera_angle: EnumProperty(
@@ -185,7 +185,7 @@ class AnimationExporterProperties(PropertyGroup):
             ('ISO', "Ізометричний", ""),
             ('SIDE', "Бічний", "")
         ],
-        default='FRONT'
+        default='SIDE'
     )
     
     output_path: StringProperty(
@@ -216,7 +216,7 @@ class AnimationExporterProperties(PropertyGroup):
     
     flip_animation: bpy.props.BoolProperty(
         name="Віддзеркалити анімацію",
-        default=False,
+        default=True,
         description="Віддзеркалити анімацію горизонтально"
     )
     
@@ -500,81 +500,98 @@ class ANIM_OT_export_spritesheet(Operator):
         bpy.context.scene.render.resolution_x = original_x
         bpy.context.scene.render.resolution_y = original_y
 
-class ANIM_OT_import_model(Operator):
+class ANIM_OT_import_model(Operator, ImportHelper):
     bl_idname = "anim.import_model"
     bl_label = "Імпорт 3D моделі"
     bl_description = "Імпортувати FBX або GLB модель з анімаціями"
     
-    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ""
+    filter_glob: StringProperty(default="*.fbx;*.glb;*.gltf", options={'HIDDEN'})
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
+    
+    @classmethod
+    def poll(cls, context):
+        return True
     
     def execute(self, context):
         try:
-            
-            if self.filepath.lower().endswith('.fbx'):
-                bpy.ops.import_scene.fbx(filepath=self.filepath)
-            elif self.filepath.lower().endswith(('.glb', '.gltf')):
-                bpy.ops.import_scene.gltf(filepath=self.filepath)
+            # Обробка множинних файлів (для drag and drop)
+            if self.files:
+                import_dir = os.path.dirname(self.filepath)
+                for file_elem in self.files:
+                    filepath = os.path.join(import_dir, file_elem.name)
+                    self.import_single_file(filepath)
             else:
-                self.report({'ERROR'}, "Unsupported file format")
-                return {'CANCELLED'}
+                self.import_single_file(self.filepath)
                 
-            # Нормалізуємо scale всіх об'єктів до 1.0
-            for obj in bpy.data.objects:
-                if obj.type in ['MESH', 'ARMATURE']:
-                    obj.scale = (1.0, 1.0, 1.0)
-                    
-            # Встановлюємо вид збоку (-X)
-            for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    for space in area.spaces:
-                        if space.type == 'VIEW_3D':
-                            bpy.ops.view3d.view_axis(type='LEFT')
-                            break
-                    break
-                    
-            # Налаштовуємо матеріали
-            for material in bpy.data.materials:
-                if material.use_nodes:
-                    nodes = material.node_tree.nodes
-                    
-                    # Знаходимо Principled BSDF
-                    principled = None
-                    for node in nodes:
-                        if node.type == 'BSDF_PRINCIPLED':
-                            principled = node
-                            break
-                    
-                    if principled:
-                        # Встановлюємо параметри
-                        principled.inputs['Metallic'].default_value = 0.0
-                        principled.inputs['Roughness'].default_value = 1.0
-                        principled.inputs['IOR'].default_value = 1.2
-                        
-                        # Видаляємо під'єднання до Alpha та Normal
-                        if principled.inputs['Alpha'].is_linked:
-                            material.node_tree.links.remove(principled.inputs['Alpha'].links[0])
-                        if principled.inputs['Normal'].is_linked:
-                            material.node_tree.links.remove(principled.inputs['Normal'].links[0])
-                    
-                    # Видаляємо непотрібні ноди
-                    nodes_to_remove = []
-                    for node in nodes:
-                        if node.type in ['NORMAL_MAP', 'BUMP']:
-                            nodes_to_remove.append(node)
-                    
-                    for node in nodes_to_remove:
-                        nodes.remove(node)
-                    
-            self.report({'INFO'}, f"Imported: {os.path.basename(self.filepath)}")
+            self.setup_imported_objects()
+            self.report({'INFO'}, f"Import completed")
             return {'FINISHED'}
             
         except Exception as e:
             self.report({'ERROR'}, f"Import failed: {str(e)}")
             return {'CANCELLED'}
     
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+    def import_single_file(self, filepath):
+        if filepath.lower().endswith('.fbx'):
+            bpy.ops.import_scene.fbx(filepath=filepath)
+        elif filepath.lower().endswith(('.glb', '.gltf')):
+            bpy.ops.import_scene.gltf(filepath=filepath)
+        else:
+            raise Exception(f"Unsupported file format: {filepath}")
+    
+    def setup_imported_objects(self):
+        # Нормалізуємо scale тільки для об'єктів менших за 1.0
+        for obj in bpy.data.objects:
+            if obj.type in ['MESH', 'ARMATURE']:
+                new_scale = [
+                    max(obj.scale[0], 1.0) if obj.scale[0] < 1.0 else obj.scale[0],
+                    max(obj.scale[1], 1.0) if obj.scale[1] < 1.0 else obj.scale[1],
+                    max(obj.scale[2], 1.0) if obj.scale[2] < 1.0 else obj.scale[2]
+                ]
+                obj.scale = new_scale
+                
+        # Встановлюємо вид збоку (-X)
+        for area in bpy.context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for space in area.spaces:
+                    if space.type == 'VIEW_3D':
+                        bpy.ops.view3d.view_axis(type='LEFT')
+                        break
+                break
+                
+        # Налаштовуємо матеріали
+        for material in bpy.data.materials:
+            if material.use_nodes:
+                nodes = material.node_tree.nodes
+                
+                principled = None
+                for node in nodes:
+                    if node.type == 'BSDF_PRINCIPLED':
+                        principled = node
+                        break
+                
+                if principled:
+                    principled.inputs['Metallic'].default_value = 0.0
+                    principled.inputs['Roughness'].default_value = 1.0
+                    principled.inputs['IOR'].default_value = 1.2
+                    
+                    if principled.inputs['Alpha'].is_linked:
+                        material.node_tree.links.remove(principled.inputs['Alpha'].links[0])
+                    if principled.inputs['Normal'].is_linked:
+                        material.node_tree.links.remove(principled.inputs['Normal'].links[0])
+                
+                nodes_to_remove = []
+                for node in nodes:
+                    if node.type in ['NORMAL_MAP', 'BUMP']:
+                        nodes_to_remove.append(node)
+                
+                for node in nodes_to_remove:
+                    nodes.remove(node)
+                    
+
+    
+
 
 class ANIM_PT_exporter_panel(Panel):
     bl_label = "3D to 2D Animation Exporter"
@@ -589,19 +606,8 @@ class ANIM_PT_exporter_panel(Panel):
         
         box = layout.box()
         box.label(text="Імпорт моделі:")
-        box.operator("anim.import_model", text="Імпорт FBX/GLB")
         
-        box = layout.box()
-        box.label(text="Анімації:")
-        if bpy.data.actions:
-            for action in bpy.data.actions:
-                row = box.row()
-                row.label(text=action.name)
-                if context.object and context.object.animation_data:
-                    if context.object.animation_data.action == action:
-                        row.label(text="(Active)", icon='PLAY')
-        else:
-            box.label(text="Анімації не знайдено")
+        box.operator("anim.import_model", text="Імпорт FBX/GLB", icon='IMPORT')
             
         box = layout.box()
         box.label(text="Налаштування експорту:")
