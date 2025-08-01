@@ -36,19 +36,25 @@ class BlenderExporter:
             if bg_node:
                 bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # Білий колір #FFFFFF
         
-    def setup_camera(self, target_object, angle_type="Фронтальний"):
+    def setup_camera(self, target_object, angle_type="Фронтальний", animation_name=None, padding_enabled=True, padding_percent=20):
         if bpy.data.objects.get("Camera"):
             bpy.data.objects.remove(bpy.data.objects["Camera"])
             
         bpy.ops.object.camera_add()
         camera = bpy.context.active_object
         
-        bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
-        min_coords = [min([v[i] for v in bbox]) for i in range(3)]
-        max_coords = [max([v[i] for v in bbox]) for i in range(3)]
+        # Аналізуємо всі кадри анімації для динамічної камери
+        if animation_name:
+            center, size = self.analyze_animation_bounds(target_object, animation_name, padding_enabled, padding_percent)
+        else:
+            bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
+            min_coords = [min([v[i] for v in bbox]) for i in range(3)]
+            max_coords = [max([v[i] for v in bbox]) for i in range(3)]
+            center = mathutils.Vector([(min_coords[i] + max_coords[i]) / 2 for i in range(3)])
+            size = max(max_coords[i] - min_coords[i] for i in range(3))
+            if padding_enabled:
+                size *= (1 + padding_percent / 100)
         
-        center = mathutils.Vector([(min_coords[i] + max_coords[i]) / 2 for i in range(3)])
-        size = max(max_coords[i] - min_coords[i] for i in range(3))
         distance = size * 2.5
         
         if angle_type == "Фронтальний":
@@ -112,7 +118,8 @@ class BlenderExporter:
         if not target_obj:
             raise Exception("No objects found")
             
-        self.setup_camera(target_obj, camera_angle)
+        props = bpy.context.scene.anim_exporter
+        self.setup_camera(target_obj, camera_angle, animation_name, props.camera_padding_enabled, props.camera_padding_percent)
         self.setup_flip_modifier(flip_animation, target_obj, camera_angle)
         
         bpy.context.scene.render.resolution_x = frame_size[0]
@@ -157,6 +164,49 @@ class BlenderExporter:
             bpy.context.scene.render.image_settings.file_format = original_format
             
         return frame_count
+    
+    def analyze_animation_bounds(self, target_object, animation_name, padding_enabled=True, padding_percent=20):
+        """Аналізує всі кадри анімації для знаходження максимальних розмірів"""
+        action = bpy.data.actions.get(animation_name)
+        if not action:
+            return self.get_static_bounds(target_object)
+        
+        frame_start = int(action.frame_range[0])
+        frame_end = int(action.frame_range[1])
+        
+        all_min_coords = [float('inf')] * 3
+        all_max_coords = [float('-inf')] * 3
+        
+        # Проходимо по кожному 5-му кадру для оптимізації
+        step = max(1, (frame_end - frame_start) // 20)
+        for frame in range(frame_start, frame_end + 1, step):
+            bpy.context.scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            
+            bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
+            frame_min = [min([v[i] for v in bbox]) for i in range(3)]
+            frame_max = [max([v[i] for v in bbox]) for i in range(3)]
+            
+            for i in range(3):
+                all_min_coords[i] = min(all_min_coords[i], frame_min[i])
+                all_max_coords[i] = max(all_max_coords[i], frame_max[i])
+        
+        center = mathutils.Vector([(all_min_coords[i] + all_max_coords[i]) / 2 for i in range(3)])
+        size = max(all_max_coords[i] - all_min_coords[i] for i in range(3))
+        
+        if padding_enabled:
+            size *= (1 + padding_percent / 100)
+        
+        return center, size
+    
+    def get_static_bounds(self, target_object):
+        """Отримує статичні розміри об'єкта"""
+        bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
+        min_coords = [min([v[i] for v in bbox]) for i in range(3)]
+        max_coords = [max([v[i] for v in bbox]) for i in range(3)]
+        center = mathutils.Vector([(min_coords[i] + max_coords[i]) / 2 for i in range(3)])
+        size = max(max_coords[i] - min_coords[i] for i in range(3))
+        return center, size
 
 class AnimationExporterProperties(PropertyGroup):
     frame_size: EnumProperty(
@@ -227,6 +277,20 @@ class AnimationExporterProperties(PropertyGroup):
             ('WEBP', "WEBP", "Експорт у WEBP форматі")
         ],
         default='PNG'
+    )
+    
+    camera_padding_enabled: bpy.props.BoolProperty(
+        name="Додати запас камери",
+        default=True,
+        description="Додавати запас для камери щоб модель не обрізалася"
+    )
+    
+    camera_padding_percent: IntProperty(
+        name="Запас камери (%)",
+        default=20,
+        min=1,
+        max=100,
+        description="Відсоток запасу для камери"
     )
 
 class ANIM_OT_export_frames(Operator):
@@ -528,6 +592,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 self.import_single_file(self.filepath)
                 
             self.setup_imported_objects()
+            self.set_animation_frame_count(context)
             self.report({'INFO'}, f"Import completed")
             return {'FINISHED'}
             
@@ -592,6 +657,15 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 for node in nodes_to_remove:
                     nodes.remove(node)
     
+    def set_animation_frame_count(self, context):
+        """Автоматично встановлює кількість кадрів на основі анімації"""
+        if bpy.data.actions:
+            action = bpy.data.actions[0]  # Беремо першу анімацію
+            frame_start = int(action.frame_range[0])
+            frame_end = int(action.frame_range[1])
+            total_frames = frame_end - frame_start + 1
+            context.scene.anim_exporter.frame_count = total_frames
+    
     def clear_scene_and_cache(self):
         # Очищуємо всі об'єкти
         bpy.ops.object.select_all(action='SELECT')
@@ -640,6 +714,9 @@ class ANIM_PT_exporter_panel(Panel):
         box.prop(props, "frame_count")
         box.prop(props, "camera_angle")
         box.prop(props, "flip_animation")
+        box.prop(props, "camera_padding_enabled")
+        if props.camera_padding_enabled:
+            box.prop(props, "camera_padding_percent")
         box.prop(props, "export_format")
         box.prop(props, "output_path")
         
