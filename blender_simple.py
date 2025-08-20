@@ -7,6 +7,47 @@ from bpy.props import StringProperty, EnumProperty, IntProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ImportHelper
 
+# --- Live camera preview helpers ---
+def refresh_camera_preview(context):
+    """Recreate/position camera based on current properties for live preview."""
+    try:
+        props = context.scene.anim_exporter
+    except Exception:
+        return
+    if not props:
+        return
+    exporter = BlenderExporter()
+    target = exporter.find_target_object()
+    if not target:
+        return
+    angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side', 'CUSTOM': 'Custom'}
+    # Use current action to compute animation bounds like export does
+    action_name = None
+    if bpy.data.actions:
+        action_name = bpy.data.actions[0].name
+    if context.object and context.object.animation_data and context.object.animation_data.action:
+        action_name = context.object.animation_data.action.name
+
+    exporter.setup_camera(
+        target,
+        angle_type=angle_map.get(props.camera_angle, 'Side'),
+        animation_name=action_name,
+        padding_enabled=props.camera_padding_enabled,
+        padding_percent=props.camera_padding_percent
+    )
+    exporter.setup_flip_modifier(props.flip_animation, target, angle_map.get(props.camera_angle, 'Side'))
+    # Ensure square preview to match export output
+    try:
+        size_val = int(props.frame_size)
+    except Exception:
+        size_val = 512
+    bpy.context.scene.render.resolution_x = size_val
+    bpy.context.scene.render.resolution_y = size_val
+
+def on_camera_prop_update(self, context):
+    """Update callback for camera-related properties to refresh preview."""
+    refresh_camera_preview(context)
+
 class BlenderExporter:
     def __init__(self):
         self.setup_scene()
@@ -63,6 +104,26 @@ class BlenderExporter:
             camera.location = (center.x + distance * 0.7, center.y - distance * 0.7, center.z + distance * 0.7)
         elif angle_type == "Side":
             camera.location = (center.x + distance, center.y, center.z)
+        elif angle_type == "Custom":
+            # Position and rotate based on custom orientation
+            props = bpy.context.scene.anim_exporter
+            orientation = getattr(props, 'custom_orientation', 'SIDE')
+            angle_deg = getattr(props, 'custom_camera_deg', 0)
+            if orientation == 'SIDE':
+                base_loc = mathutils.Vector((center.x + distance, center.y, center.z))
+                axis = 'Z'  # orbit horizontally around vertical axis
+            elif orientation == 'UP':
+                base_loc = mathutils.Vector((center.x, center.y, center.z + distance))
+                axis = 'X'  # orbit vertically from top view
+            else:  # 'DOWN'
+                base_loc = mathutils.Vector((center.x, center.y, center.z - distance))
+                axis = 'X'  # orbit vertically from bottom view
+            angle_rad = math.radians(angle_deg)
+            rot_mat = mathutils.Matrix.Rotation(angle_rad, 4, axis)
+            offset = base_loc - center
+            rotated = rot_mat @ offset
+            new_loc = center + rotated
+            camera.location = (new_loc.x, new_loc.y, new_loc.z)
             
         direction = center - camera.location
         camera.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
@@ -97,6 +158,10 @@ class BlenderExporter:
                     size = max(max_coords[i] - min_coords[i] for i in range(3))
                     distance = size * 2.5
                     camera.location = (center.x - distance, center.y, center.z)
+                elif angle_type == "Custom":
+                    # Mirror current camera position around the model center to preserve custom orientation
+                    offset = camera.location - center
+                    camera.location = center - offset
                 
                 # Reorient camera to look at center
                 direction = center - camera.location
@@ -233,9 +298,11 @@ class AnimationExporterProperties(PropertyGroup):
         items=[
             ('FRONT', "Front", ""),
             ('ISO', "Isometric", ""),
-            ('SIDE', "Side", "")
+            ('SIDE', "Side", ""),
+            ('CUSTOM', "Custom", "Use custom X tilt")
         ],
-        default='SIDE'
+        default='SIDE',
+        update=on_camera_prop_update
     )
     
     output_path: StringProperty(
@@ -267,7 +334,8 @@ class AnimationExporterProperties(PropertyGroup):
     flip_animation: bpy.props.BoolProperty(
         name="Flip Camera",
         default=True,
-        description="Flip animation horizontally"
+        description="Flip animation horizontally",
+        update=on_camera_prop_update
     )
     
     export_format: EnumProperty(
@@ -281,8 +349,9 @@ class AnimationExporterProperties(PropertyGroup):
     
     camera_padding_enabled: bpy.props.BoolProperty(
         name="Add Camera Padding",
-        default=True,
-        description="Add padding so the model isn't clipped"
+        default=False,
+        description="Add padding so the model isn't clipped",
+        update=on_camera_prop_update
     )
     
     camera_padding_percent: IntProperty(
@@ -290,7 +359,27 @@ class AnimationExporterProperties(PropertyGroup):
         default=20,
         min=1,
         max=100,
-        description="Padding percentage for camera"
+        description="Padding percentage for camera",
+        update=on_camera_prop_update
+    )
+
+    # Custom camera controls (visible only when camera_angle == 'CUSTOM')
+    custom_orientation: EnumProperty(
+        name="Custom Orientation",
+        items=[
+            ('SIDE', "Side", "Orbit horizontally (around Z) from side view"),
+            ('UP', "Up", "Orbit vertically (around X) from top view")
+        ],
+        default='SIDE',
+        update=on_camera_prop_update
+    )
+    custom_camera_deg: IntProperty(
+        name="Custom Angle (deg)",
+        default=0,
+        min=-180,
+        max=180,
+        description="Rotation angle for Custom orientation",
+        update=on_camera_prop_update
     )
 
 class ANIM_OT_export_frames(Operator):
@@ -323,7 +412,7 @@ class ANIM_OT_export_frames(Operator):
                 return {'CANCELLED'}
                 
             size = int(props.frame_size)
-            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side'}
+            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side', 'CUSTOM': 'Custom'}
             
             frame_count = exporter.export_animation_frames(
                 animation_name=action.name,
@@ -372,7 +461,7 @@ class ANIM_OT_export_spritesheet(Operator):
                 return {'CANCELLED'}
                 
             size = int(props.frame_size)
-            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side'}
+            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side', 'CUSTOM': 'Custom'}
             
             clean_name = action.name.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
@@ -593,6 +682,8 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 
             self.setup_imported_objects()
             self.set_animation_frame_count(context)
+            # Create/position camera immediately for live preview
+            refresh_camera_preview(context)
             self.report({'INFO'}, f"Import completed")
             return {'FINISHED'}
             
@@ -713,6 +804,9 @@ class ANIM_PT_exporter_panel(Panel):
         box.prop(props, "frame_size")
         box.prop(props, "frame_count")
         box.prop(props, "camera_angle")
+        if props.camera_angle == 'CUSTOM':
+            box.prop(props, "custom_orientation")
+            box.prop(props, "custom_camera_deg")
         box.prop(props, "flip_animation")
         box.prop(props, "camera_padding_enabled")
         if props.camera_padding_enabled:
