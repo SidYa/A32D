@@ -36,7 +36,7 @@ A Blender add-on for converting 3D animations into 2D sprite sheets, perfect for
 
 ### Basic Workflow
 1. Launch the add-on using the provided script
-2. In Blender, find the "Animation" panel in the 3D Viewport (right sidebar)
+2. In Blender, find the "A32D" panel in the 3D Viewport (right sidebar)
 3. **Import** your 3D model (FBX/GLB/GLTF)
 4. **Configure** export settings
 5. **Export** as frames or spritesheet

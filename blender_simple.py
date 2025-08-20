@@ -739,6 +739,40 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                         material.node_tree.links.remove(principled.inputs['Alpha'].links[0])
                     if principled.inputs['Normal'].is_linked:
                         material.node_tree.links.remove(principled.inputs['Normal'].links[0])
+                    # Ensure only Base Color affects shading: robustly detach emission inputs
+                    try:
+                        links = material.node_tree.links
+                        # Handle both legacy and newer names
+                        emission_names = {"Emission", "Emission Color"}
+                        strength_names = {"Emission Strength"}
+                        # Detach all links going into emission-related inputs
+                        for inp in principled.inputs:
+                            if inp.name in emission_names or inp.name in strength_names:
+                                if inp.is_linked:
+                                    # remove all links targeting this input
+                                    for l in list(inp.links):
+                                        if l.to_node == principled and l.to_socket == inp:
+                                            links.remove(l)
+                                # zero defaults
+                                if inp.name in emission_names:
+                                    try:
+                                        # color (RGB or RGBA)
+                                        dv = inp.default_value
+                                        if isinstance(dv, tuple) or isinstance(dv, list):
+                                            # keep length
+                                            zeros = [0.0] * len(dv)
+                                            inp.default_value = zeros
+                                        else:
+                                            inp.default_value = 0.0
+                                    except Exception:
+                                        pass
+                                if inp.name in strength_names:
+                                    try:
+                                        inp.default_value = 0.0
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
                 
                 nodes_to_remove = []
                 for node in nodes:
@@ -788,7 +822,7 @@ class ANIM_PT_exporter_panel(Panel):
     bl_idname = "ANIM_PT_exporter"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Animation"
+    bl_category = "A32D"
     
     def draw(self, context):
         layout = self.layout
