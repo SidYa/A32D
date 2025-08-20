@@ -265,7 +265,7 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     flip_animation: bpy.props.BoolProperty(
-        name="Flip Animation",
+        name="Flip Camera",
         default=True,
         description="Flip animation horizontally"
     )
