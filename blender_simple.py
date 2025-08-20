@@ -26,24 +26,24 @@ class BlenderExporter:
         bpy.ops.object.light_add(type='SUN', location=(5, 5, 10))
         sun = bpy.context.active_object
         sun.data.energy = 3
-        sun.data.color = (1.0, 1.0, 1.0)  # Білий колір #FFFFFF
+        sun.data.color = (1.0, 1.0, 1.0)  # White color #FFFFFF
         
-        # Встановлюємо білий колір світу
+        # Set white world color
         if bpy.context.scene.world:
             bpy.context.scene.world.use_nodes = True
             world_nodes = bpy.context.scene.world.node_tree.nodes
             bg_node = world_nodes.get('Background')
             if bg_node:
-                bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # Білий колір #FFFFFF
+                bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # White color #FFFFFF
         
-    def setup_camera(self, target_object, angle_type="Фронтальний", animation_name=None, padding_enabled=True, padding_percent=20):
+    def setup_camera(self, target_object, angle_type="Front", animation_name=None, padding_enabled=True, padding_percent=20):
         if bpy.data.objects.get("Camera"):
             bpy.data.objects.remove(bpy.data.objects["Camera"])
             
         bpy.ops.object.camera_add()
         camera = bpy.context.active_object
         
-        # Аналізуємо всі кадри анімації для динамічної камери
+        # Analyze all animation frames for dynamic camera
         if animation_name:
             center, size = self.analyze_animation_bounds(target_object, animation_name, padding_enabled, padding_percent)
         else:
@@ -57,11 +57,11 @@ class BlenderExporter:
         
         distance = size * 2.5
         
-        if angle_type == "Фронтальний":
+        if angle_type == "Front":
             camera.location = (center.x, center.y - distance, center.z)
-        elif angle_type == "Ізометричний":
+        elif angle_type == "Isometric":
             camera.location = (center.x + distance * 0.7, center.y - distance * 0.7, center.z + distance * 0.7)
-        elif angle_type == "Бічний":
+        elif angle_type == "Side":
             camera.location = (center.x + distance, center.y, center.z)
             
         direction = center - camera.location
@@ -82,17 +82,17 @@ class BlenderExporter:
                 center = mathutils.Vector([(min_coords[i] + max_coords[i]) / 2 for i in range(3)])
                 
                 # Flip camera position horizontally around model center
-                if angle_type == "Фронтальний":
+                if angle_type == "Front":
                     # Move camera to back instead of front
                     size = max(max_coords[i] - min_coords[i] for i in range(3))
                     distance = size * 2.5
                     camera.location = (center.x, center.y + distance, center.z)
-                elif angle_type == "Ізометричний":
+                elif angle_type == "Isometric":
                     # Flip isometric position
                     size = max(max_coords[i] - min_coords[i] for i in range(3))
                     distance = size * 2.5
                     camera.location = (center.x - distance * 0.7, center.y + distance * 0.7, center.z + distance * 0.7)
-                elif angle_type == "Бічний":
+                elif angle_type == "Side":
                     # Move to opposite side
                     size = max(max_coords[i] - min_coords[i] for i in range(3))
                     distance = size * 2.5
@@ -112,7 +112,7 @@ class BlenderExporter:
         return None
         
     def export_animation_frames(self, animation_name, output_dir, frame_size=(128, 128), 
-                               frame_count=16, camera_angle="Фронтальний", flip_animation=False, export_format='PNG'):
+                               frame_count=16, camera_angle="Front", flip_animation=False, export_format='PNG'):
         self.export_format = export_format
         target_obj = self.find_target_object()
         if not target_obj:
@@ -166,7 +166,7 @@ class BlenderExporter:
         return frame_count
     
     def analyze_animation_bounds(self, target_object, animation_name, padding_enabled=True, padding_percent=20):
-        """Аналізує всі кадри анімації для знаходження максимальних розмірів"""
+        """Analyzes all animation frames to find maximum dimensions"""
         action = bpy.data.actions.get(animation_name)
         if not action:
             return self.get_static_bounds(target_object)
@@ -177,7 +177,7 @@ class BlenderExporter:
         all_min_coords = [float('inf')] * 3
         all_max_coords = [float('-inf')] * 3
         
-        # Проходимо по кожному 5-му кадру для оптимізації
+        # Process every 5th frame for optimization
         step = max(1, (frame_end - frame_start) // 20)
         for frame in range(frame_start, frame_end + 1, step):
             bpy.context.scene.frame_set(frame)
@@ -200,7 +200,7 @@ class BlenderExporter:
         return center, size
     
     def get_static_bounds(self, target_object):
-        """Отримує статичні розміри об'єкта"""
+        """Gets static dimensions of the object"""
         bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
         min_coords = [min([v[i] for v in bbox]) for i in range(3)]
         max_coords = [max([v[i] for v in bbox]) for i in range(3)]
@@ -210,7 +210,7 @@ class BlenderExporter:
 
 class AnimationExporterProperties(PropertyGroup):
     frame_size: EnumProperty(
-        name="Розмір кадру",
+        name="Frame Size",
         items=[
             ('64', "64x64", ""),
             ('128', "128x128", ""),
@@ -223,79 +223,79 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     frame_count: IntProperty(
-        name="Кількість кадрів",
+        name="Frame Count",
         default=1,
         min=1
     )
     
     camera_angle: EnumProperty(
-        name="Кут камери",
+        name="Camera Angle",
         items=[
-            ('FRONT', "Фронтальний", ""),
-            ('ISO', "Ізометричний", ""),
-            ('SIDE', "Бічний", "")
+            ('FRONT', "Front", ""),
+            ('ISO', "Isometric", ""),
+            ('SIDE', "Side", "")
         ],
         default='SIDE'
     )
     
     output_path: StringProperty(
-        name="Папка збереження",
+        name="Output Folder",
         subtype='DIR_PATH',
         default=""
     )
     
     sprite_columns: IntProperty(
-        name="Стовпчики",
+        name="Columns",
         default=4,
         min=1,
         max=20
     )
     
     sprite_rows: IntProperty(
-        name="Рядки",
+        name="Rows",
         default=4,
         min=1,
         max=20
     )
     
     auto_grid: bpy.props.BoolProperty(
-        name="Автоматично",
+        name="Auto",
         default=True,
         description="Автоматично розраховувати сітку"
     )
     
     flip_animation: bpy.props.BoolProperty(
-        name="Віддзеркалити анімацію",
+        name="Mirror Animation",
         default=True,
         description="Віддзеркалити анімацію горизонтально"
     )
     
     export_format: EnumProperty(
-        name="Формат експорту",
+        name="Export Format",
         items=[
-            ('PNG', "PNG", "Експорт у PNG форматі"),
-            ('WEBP', "WEBP", "Експорт у WEBP форматі")
+            ('PNG', "PNG", "Export to PNG format"),
+            ('WEBP', "WEBP", "Export to WEBP format")
         ],
         default='PNG'
     )
     
     camera_padding_enabled: bpy.props.BoolProperty(
-        name="Додати запас камери",
+        name="Add Camera Padding",
         default=True,
-        description="Додавати запас для камери щоб модель не обрізалася"
+        description="Add padding around the camera to prevent model clipping"
     )
     
     camera_padding_percent: IntProperty(
-        name="Запас камери (%)",
+        name="Camera Padding (%)",
         default=20,
         min=1,
         max=100,
-        description="Відсоток запасу для камери"
+        description="Percentage of padding around the camera"
     )
 
 class ANIM_OT_export_frames(Operator):
     bl_idname = "anim.export_frames"
-    bl_label = "Експорт у фрейми"
+    bl_label = "Export as Frames"
     bl_description = "Export animation as separate PNG frames"
     
     def execute(self, context):
@@ -344,7 +344,7 @@ class ANIM_OT_export_frames(Operator):
 
 class ANIM_OT_export_spritesheet(Operator):
     bl_idname = "anim.export_spritesheet"
-    bl_label = "Експорт в SpriteSheet"
+    bl_label = "Export as SpriteSheet"
     bl_description = "Export animation as spritesheet"
     
     def execute(self, context):
@@ -566,8 +566,8 @@ class ANIM_OT_export_spritesheet(Operator):
 
 class ANIM_OT_import_model(Operator, ImportHelper):
     bl_idname = "anim.import_model"
-    bl_label = "Імпорт 3D моделі"
-    bl_description = "Імпортувати FBX або GLB модель з анімаціями"
+    bl_label = "Import 3D Model"
+    bl_description = "Import FBX or GLB model with animations"
     
     filename_ext = ""
     filter_glob: StringProperty(default="*.fbx;*.glb;*.gltf", options={'HIDDEN'})
@@ -579,7 +579,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
     
     def execute(self, context):
         try:
-            # Очищуємо сцену та кеш перед імпортом
+            # Clear the scene and cache before import
             self.clear_scene_and_cache()
             
             # Обробка множинних файлів (для drag and drop)
@@ -667,27 +667,27 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             context.scene.anim_exporter.frame_count = total_frames
     
     def clear_scene_and_cache(self):
-        # Очищуємо всі об'єкти
+        # Clear all objects
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete()
         
-        # Очищуємо анімації
+        # Clear animations
         for action in bpy.data.actions:
             bpy.data.actions.remove(action)
         
-        # Очищуємо матеріали
+        # Clear materials
         for material in bpy.data.materials:
             bpy.data.materials.remove(material)
         
-        # Очищуємо меші
+        # Clear meshes
         for mesh in bpy.data.meshes:
             bpy.data.meshes.remove(mesh)
         
-        # Очищуємо арматури
+        # Clear armatures
         for armature in bpy.data.armatures:
             bpy.data.armatures.remove(armature)
         
-        # Очищуємо зображення
+        # Clear images
         for image in bpy.data.images:
             if image.users == 0:
                 bpy.data.images.remove(image)
@@ -704,12 +704,12 @@ class ANIM_PT_exporter_panel(Panel):
         props = context.scene.anim_exporter
         
         box = layout.box()
-        box.label(text="Імпорт анімації:")
+        box.label(text="Animation Import:")
         
-        box.operator("anim.import_model", text="Імпорт FBX/GLB", icon='IMPORT')
+        box.operator("anim.import_model", text="Import FBX/GLB", icon='IMPORT')
             
         box = layout.box()
-        box.label(text="Налаштування експорту:")
+        box.label(text="Export Settings:")
         box.prop(props, "frame_size")
         box.prop(props, "frame_count")
         box.prop(props, "camera_angle")
@@ -721,7 +721,7 @@ class ANIM_PT_exporter_panel(Panel):
         box.prop(props, "output_path")
         
         box = layout.box()
-        box.label(text="Налаштування спрайт-листа:")
+        box.label(text="Sprite Sheet Settings:")
         box.prop(props, "auto_grid")
         
         row = box.row()
@@ -731,8 +731,8 @@ class ANIM_PT_exporter_panel(Panel):
         
         layout.separator()
         row = layout.row()
-        row.operator("anim.export_frames", text="Експорт у фрейми", icon='RENDER_ANIMATION')
-        row.operator("anim.export_spritesheet", text="Експорт в SpriteSheet", icon='TEXTURE')
+        row.operator("anim.export_frames", text="Export as Frames", icon='RENDER_ANIMATION')
+        row.operator("anim.export_spritesheet", text="Export as SpriteSheet", icon='TEXTURE')
 
 classes = [
     AnimationExporterProperties,
@@ -753,7 +753,7 @@ def unregister():
     del bpy.types.Scene.anim_exporter
 
 if __name__ == "__main__":
-    # Очищаємо сцену при запуску програми
+    # Clear the scene when starting the program
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
     
