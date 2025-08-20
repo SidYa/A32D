@@ -62,37 +62,12 @@ A Blender add-on for converting 3D animations into 2D sprite sheets, perfect for
 | Type      | Formats                     |
 |-----------|----------------------------|
 | **Input** | FBX, GLB, GLTF             |
-| **Output**| PNG (transparent), WEBP    |
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-- **No animations found**
-  - Ensure your model has armature or shape key animations
-  - Check that the action is not muted in the NLA Editor
-
-- **Black background**
-  - Enable "Film Transparent" in render settings
-  - Check that the alpha channel is enabled in output settings
-
-- **Model appears cut off**
-  - Increase camera padding percentage
-  - Adjust camera distance in the 3D view
-
-### Performance Tips
-- Lower frame count for faster previews
-- Use smaller frame sizes during testing
-- Close other applications to free up memory
-- For large animations, export in smaller batches
+| **Output**| PNG, WEBP |
 
 ## 📝 Notes
 - The add-on automatically cleans up temporary files
 - Original 3D scene is preserved after export
 - All animations are baked into the output frames
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Credits
 
