@@ -1,43 +1,100 @@
 # 3D to 2D Animation Exporter
 
-Програма для експорту 3D анімацій у 2D спрайт-листи для 2D ігор.
+A Blender add-on for converting 3D animations into 2D sprite sheets, perfect for 2D game development and motion graphics.
 
-## Можливості
+## ✨ Features
 
-- Імпорт FBX/GLB файлів з анімаціями
-- Експорт у окремі кадри або спрайт-лист
-- Формати: PNG, WEBP
-- Кути камери: фронтальний, ізометричний, бічний
-- Віддзеркалення анімації
-- Автоматичне розрахування сітки спрайт-листа
+- **Import**: FBX, GLB, GLTF files with animations
+- **Export**: 
+  - Individual frames or sprite sheets
+  - Image formats: PNG (with transparency) and WEBP
+- **Camera Controls**:
+  - Multiple angles: front, isometric, side
+  - Adjustable camera padding
+  - Automatic framing of animations
+- **Animation Tools**:
+  - Frame-by-frame export
+  - Animation mirroring
+  - Automatic grid calculation for sprite sheets
 
-## Встановлення
+## 🚀 System Requirements
 
-1. Встановіть Blender 4.0+
-2. Запустіть:
-   - **Windows**: `run_blender.bat`
-   - **Linux**: `./run_blender_linux.sh`
-   - **MacOS**: `./run_blender_mac.sh`
+- Blender 4.0 or newer
+- Python 3.x (included with Blender)
+- Minimum 4GB RAM (8GB+ recommended for complex animations)
+- 1GB free disk space (for temporary files)
 
-## Використання
+## 📦 Installation
 
-1. У Blender відкрийте панель **Animation** (права сторона)
-2. **Імпорт FBX/GLB** - завантажте модель з анімацією
-3. Налаштуйте параметри:
-   - Розмір кадру (64x64 - 512x512)
-   - Кількість кадрів
-   - Кут камери
-   - Формат експорту (PNG/WEBP)
-   - Віддзеркалення (для протилежного напрямку)
-4. Виберіть тип експорту:
-   - **Експорт у фрейми** - окремі файли
-   - **Експорт в SpriteSheet** - один файл-сітка
+1. Download and install [Blender 4.0+](https://www.blender.org/download/)
+2. Run the appropriate script for your OS:
+   - **Windows**: Double-click `run_blender.bat`
+   - **Linux**: `chmod +x run_blender_linux.sh && ./run_blender_linux.sh`
+   - **MacOS**: `chmod +x run_blender_mac.sh && ./run_blender_mac.sh`
 
-## Підтримувані формати
+## 🎮 Usage Guide
 
-**Вхідні**: FBX, GLB, GLTF  
-**Вихідні**: PNG, WEBP
+### Basic Workflow
+1. Launch the add-on using the provided script
+2. In Blender, find the "3D to 2D Animation Exporter" panel in the 3D Viewport (right sidebar)
+3. **Import** your 3D model (FBX/GLB/GLTF)
+4. **Configure** export settings
+5. **Export** as frames or spritesheet
 
-## Ліцензія
+### Export Settings
 
-MIT License
+#### Frame Settings
+- **Size**: 64x64 to 2048x2048 pixels
+- **Count**: Number of frames to export
+- **Format**: PNG (lossless) or WEBP (compressed)
+
+#### Camera Settings
+- **Angle**: Front, Isometric, or Side view
+- **Padding**: Automatic padding around the subject (0-100%)
+- **Mirroring**: Flip animation horizontally
+
+#### Sprite Sheet Options
+- **Auto Grid**: Automatically calculate optimal grid layout
+- **Manual Grid**: Specify exact rows and columns
+
+## 🔄 Supported Formats
+
+| Type      | Formats                     |
+|-----------|----------------------------|
+| **Input** | FBX, GLB, GLTF             |
+| **Output**| PNG (transparent), WEBP    |
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+- **No animations found**
+  - Ensure your model has armature or shape key animations
+  - Check that the action is not muted in the NLA Editor
+
+- **Black background**
+  - Enable "Film Transparent" in render settings
+  - Check that the alpha channel is enabled in output settings
+
+- **Model appears cut off**
+  - Increase camera padding percentage
+  - Adjust camera distance in the 3D view
+
+### Performance Tips
+- Lower frame count for faster previews
+- Use smaller frame sizes during testing
+- Close other applications to free up memory
+- For large animations, export in smaller batches
+
+## 📝 Notes
+- The add-on automatically cleans up temporary files
+- Original 3D scene is preserved after export
+- All animations are baked into the output frames
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Credits
+
+Developed for game developers and digital artists.
+Special thanks to the Blender community for their amazing tools and support.
