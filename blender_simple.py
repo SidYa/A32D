@@ -28,7 +28,7 @@ class BlenderExporter:
         sun.data.energy = 3
         sun.data.color = (1.0, 1.0, 1.0)  # White color #FFFFFF
         
-        # Set white world color
+        # Set world background to white
         if bpy.context.scene.world:
             bpy.context.scene.world.use_nodes = True
             world_nodes = bpy.context.scene.world.node_tree.nodes
@@ -166,7 +166,7 @@ class BlenderExporter:
         return frame_count
     
     def analyze_animation_bounds(self, target_object, animation_name, padding_enabled=True, padding_percent=20):
-        """Analyzes all animation frames to find maximum dimensions"""
+        """Analyze all animation frames to find maximum bounds"""
         action = bpy.data.actions.get(animation_name)
         if not action:
             return self.get_static_bounds(target_object)
@@ -177,7 +177,7 @@ class BlenderExporter:
         all_min_coords = [float('inf')] * 3
         all_max_coords = [float('-inf')] * 3
         
-        # Process every 5th frame for optimization
+        # Iterate every Nth frame for optimization
         step = max(1, (frame_end - frame_start) // 20)
         for frame in range(frame_start, frame_end + 1, step):
             bpy.context.scene.frame_set(frame)
@@ -200,7 +200,7 @@ class BlenderExporter:
         return center, size
     
     def get_static_bounds(self, target_object):
-        """Gets static dimensions of the object"""
+        """Get static object bounds"""
         bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
         min_coords = [min([v[i] for v in bbox]) for i in range(3)]
         max_coords = [max([v[i] for v in bbox]) for i in range(3)]
@@ -261,20 +261,20 @@ class AnimationExporterProperties(PropertyGroup):
     auto_grid: bpy.props.BoolProperty(
         name="Auto",
         default=True,
-        description="Автоматично розраховувати сітку"
+        description="Automatically calculate grid"
     )
     
     flip_animation: bpy.props.BoolProperty(
-        name="Mirror Animation",
+        name="Flip Animation",
         default=True,
-        description="Віддзеркалити анімацію горизонтально"
+        description="Flip animation horizontally"
     )
     
     export_format: EnumProperty(
         name="Export Format",
         items=[
-            ('PNG', "PNG", "Export to PNG format"),
-            ('WEBP', "WEBP", "Export to WEBP format")
+            ('PNG', "PNG", "Export in PNG format"),
+            ('WEBP', "WEBP", "Export in WEBP format")
         ],
         default='PNG'
     )
@@ -282,7 +282,7 @@ class AnimationExporterProperties(PropertyGroup):
     camera_padding_enabled: bpy.props.BoolProperty(
         name="Add Camera Padding",
         default=True,
-        description="Add padding around the camera to prevent model clipping"
+        description="Add padding so the model isn't clipped"
     )
     
     camera_padding_percent: IntProperty(
@@ -290,12 +290,12 @@ class AnimationExporterProperties(PropertyGroup):
         default=20,
         min=1,
         max=100,
-        description="Percentage of padding around the camera"
+        description="Padding percentage for camera"
     )
 
 class ANIM_OT_export_frames(Operator):
     bl_idname = "anim.export_frames"
-    bl_label = "Export as Frames"
+    bl_label = "Export to Frames"
     bl_description = "Export animation as separate PNG frames"
     
     def execute(self, context):
@@ -323,7 +323,7 @@ class ANIM_OT_export_frames(Operator):
                 return {'CANCELLED'}
                 
             size = int(props.frame_size)
-            angle_map = {'FRONT': 'Фронтальний', 'ISO': 'Ізометричний', 'SIDE': 'Бічний'}
+            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side'}
             
             frame_count = exporter.export_animation_frames(
                 animation_name=action.name,
@@ -344,7 +344,7 @@ class ANIM_OT_export_frames(Operator):
 
 class ANIM_OT_export_spritesheet(Operator):
     bl_idname = "anim.export_spritesheet"
-    bl_label = "Export as SpriteSheet"
+    bl_label = "Export to SpriteSheet"
     bl_description = "Export animation as spritesheet"
     
     def execute(self, context):
@@ -372,7 +372,7 @@ class ANIM_OT_export_spritesheet(Operator):
                 return {'CANCELLED'}
                 
             size = int(props.frame_size)
-            angle_map = {'FRONT': 'Фронтальний', 'ISO': 'Ізометричний', 'SIDE': 'Бічний'}
+            angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side'}
             
             clean_name = action.name.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
@@ -405,10 +405,10 @@ class ANIM_OT_export_spritesheet(Operator):
             
             # Create spritesheet using Blender image editor
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
-            # Сортуємо файли по номеру кадру для правильної послідовності
+            # Sort files by frame number for correct order
             all_files = [f for f in os.listdir(temp_dir) if f.endswith(file_ext.replace('.', ''))]
             frame_files = sorted(all_files, key=lambda x: int(x.split('_frame_')[1].split('.')[0]) if '_frame_' in x else 0)
-            print(f"Found frame files: {frame_files[:5]}...")  # Показуємо перші 5
+            print(f"Found frame files: {frame_files[:5]}...")  # Show first 5
             
             if frame_files and len(frame_files) >= frame_count:
                 # Create new image for spritesheet
@@ -429,13 +429,13 @@ class ANIM_OT_export_spritesheet(Operator):
                 # Initialize spritesheet with transparent pixels
                 pixels = [0.0, 0.0, 0.0, 0.0] * (spritesheet_width * spritesheet_height)
                 
-                # Перевіряємо послідовність кадрів
+                # Check frame sequence
                 print(f"Processing {len(frame_images)} frames for {cols}x{rows} grid")
                 
                 for frame_index in range(min(frame_count, len(frame_images), cols * rows)):
                     img = frame_images[frame_index]
                     
-                    # Позиція в сітці: зліва направо, зверху вниз
+                    # Grid position: left to right, top to bottom
                     col = frame_index % cols
                     row = frame_index // cols
                     
@@ -579,10 +579,10 @@ class ANIM_OT_import_model(Operator, ImportHelper):
     
     def execute(self, context):
         try:
-            # Clear the scene and cache before import
+            # Clear scene and cache before import
             self.clear_scene_and_cache()
             
-            # Обробка множинних файлів (для drag and drop)
+            # Handle multiple files (for drag and drop)
             if self.files:
                 import_dir = os.path.dirname(self.filepath)
                 for file_elem in self.files:
@@ -609,7 +609,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             raise Exception(f"Unsupported file format: {filepath}")
     
     def setup_imported_objects(self):
-        # Нормалізуємо scale тільки для об'єктів менших за 1.0
+        # Normalize scale only for objects smaller than 1.0
         for obj in bpy.data.objects:
             if obj.type in ['MESH', 'ARMATURE']:
                 new_scale = [
@@ -619,7 +619,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 ]
                 obj.scale = new_scale
                 
-        # Встановлюємо вид збоку (-X)
+        # Set side view (-X)
         for area in bpy.context.screen.areas:
             if area.type == 'VIEW_3D':
                 for space in area.spaces:
@@ -628,7 +628,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                         break
                 break
                 
-        # Налаштовуємо матеріали
+        # Configure materials
         for material in bpy.data.materials:
             if material.use_nodes:
                 nodes = material.node_tree.nodes
@@ -658,9 +658,9 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                     nodes.remove(node)
     
     def set_animation_frame_count(self, context):
-        """Автоматично встановлює кількість кадрів на основі анімації"""
+        """Automatically set frame count based on animation"""
         if bpy.data.actions:
-            action = bpy.data.actions[0]  # Беремо першу анімацію
+            action = bpy.data.actions[0]  # Take the first animation
             frame_start = int(action.frame_range[0])
             frame_end = int(action.frame_range[1])
             total_frames = frame_end - frame_start + 1
@@ -704,7 +704,7 @@ class ANIM_PT_exporter_panel(Panel):
         props = context.scene.anim_exporter
         
         box = layout.box()
-        box.label(text="Animation Import:")
+        box.label(text="Import Animation:")
         
         box.operator("anim.import_model", text="Import FBX/GLB", icon='IMPORT')
             
@@ -721,7 +721,7 @@ class ANIM_PT_exporter_panel(Panel):
         box.prop(props, "output_path")
         
         box = layout.box()
-        box.label(text="Sprite Sheet Settings:")
+        box.label(text="Spritesheet Settings:")
         box.prop(props, "auto_grid")
         
         row = box.row()
@@ -731,8 +731,8 @@ class ANIM_PT_exporter_panel(Panel):
         
         layout.separator()
         row = layout.row()
-        row.operator("anim.export_frames", text="Export as Frames", icon='RENDER_ANIMATION')
-        row.operator("anim.export_spritesheet", text="Export as SpriteSheet", icon='TEXTURE')
+        row.operator("anim.export_frames", text="Export to Frames", icon='RENDER_ANIMATION')
+        row.operator("anim.export_spritesheet", text="Export to SpriteSheet", icon='TEXTURE')
 
 classes = [
     AnimationExporterProperties,
@@ -753,7 +753,7 @@ def unregister():
     del bpy.types.Scene.anim_exporter
 
 if __name__ == "__main__":
-    # Clear the scene when starting the program
+    # Clear scene on script start
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
     
