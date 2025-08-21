@@ -274,7 +274,7 @@ class BlenderExporter:
 
 class AnimationExporterProperties(PropertyGroup):
     frame_size: EnumProperty(
-        name="Frame Size",
+        name="Size",
         items=[
             ('64', "64x64", ""),
             ('128', "128x128", ""),
@@ -293,7 +293,7 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     camera_angle: EnumProperty(
-        name="Camera Angle",
+        name="Angle",
         items=[
             ('FRONT', "Front", ""),
             ('ISO', "Isometric", ""),
@@ -305,7 +305,7 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     output_path: StringProperty(
-        name="Output Folder",
+        name="Folder",
         subtype='DIR_PATH',
         default=""
     )
@@ -344,7 +344,7 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     export_format: EnumProperty(
-        name="Export Format",
+        name="Format",
         items=[
             ('PNG', "PNG", "Export in PNG format"),
             ('WEBP', "WEBP", "Export in WEBP format")
@@ -844,24 +844,29 @@ class ANIM_PT_exporter_panel(Panel):
         
         box.operator("anim.import_model", text="Import FBX/GLB", icon='IMPORT')
             
-        box = layout.box()
-        box.label(text="Export Settings:")
-        box.prop(props, "frame_size")
-        box.prop(props, "frame_count")
-        box.prop(props, "camera_angle")
+        # Frame settings block
+        frame_box = layout.box()
+        frame_box.label(text="Frame Settings:")
+        frame_box.prop(props, "frame_size")
+        frame_box.prop(props, "frame_count")
+
+        # Camera settings block
+        cam_box = layout.box()
+        cam_box.label(text="Camera Settings:")
+        cam_box.prop(props, "camera_angle")
         if props.camera_angle == 'CUSTOM':
-            box.prop(props, "custom_orientation")
-            box.prop(props, "custom_camera_deg")
-        box.prop(props, "flip_animation")
-        box.prop(props, "camera_padding_enabled")
+            cam_box.prop(props, "custom_orientation")
+            cam_box.prop(props, "custom_camera_deg")
+        cam_box.prop(props, "flip_animation")
+        cam_box.prop(props, "camera_padding_enabled")
         if props.camera_padding_enabled:
-            box.prop(props, "camera_padding_percent")
-        box.prop(props, "export_format")
-        box.prop(props, "output_path")
-        
-        # New unified export block
+            cam_box.prop(props, "camera_padding_percent")
+
+        # Export block with format and output above buttons
         export_box = layout.box()
-        export_box.label(text="Export animations to:")
+        export_box.label(text="Export:")
+        export_box.prop(props, "export_format")
+        export_box.prop(props, "output_path")
         row = export_box.row()
         row.operator("anim.export_frames", text="Sprites", icon='RENDER_ANIMATION')
         row.operator("anim.export_spritesheet", text="Spritesheet", icon='TEXTURE')
