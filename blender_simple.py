@@ -6,6 +6,11 @@ import math
 from bpy.props import StringProperty, EnumProperty, IntProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ImportHelper
+try:
+	from PIL import Image as _PILImage
+	_PIL_AVAILABLE = True
+except Exception:
+	_PIL_AVAILABLE = False
 
 # --- Live camera preview helpers ---
 def refresh_camera_preview(context):
@@ -84,17 +89,10 @@ class BlenderExporter:
         bpy.ops.object.camera_add()
         camera = bpy.context.active_object
         
-        # Analyze all animation frames for dynamic camera
-        if animation_name:
-            center, size = self.analyze_animation_bounds(target_object, animation_name, padding_enabled, padding_percent)
-        else:
-            bbox = [target_object.matrix_world @ mathutils.Vector(corner) for corner in target_object.bound_box]
-            min_coords = [min([v[i] for v in bbox]) for i in range(3)]
-            max_coords = [max([v[i] for v in bbox]) for i in range(3)]
-            center = mathutils.Vector([(min_coords[i] + max_coords[i]) / 2 for i in range(3)])
-            size = max(max_coords[i] - min_coords[i] for i in range(3))
-            if padding_enabled:
-                size *= (1 + padding_percent / 100)
+        # Use static object bounds for consistent scale across all animations
+        center, size = self.get_static_bounds(target_object)
+        if padding_enabled:
+            size *= (1 + padding_percent / 100)
         
         distance = size * 2.5
         
@@ -177,7 +175,7 @@ class BlenderExporter:
         return None
         
     def export_animation_frames(self, animation_name, output_dir, frame_size=(128, 128), 
-                               frame_count=16, camera_angle="Front", flip_animation=False, export_format='PNG'):
+                               frame_count=16, camera_angle="Front", flip_animation=False, export_format='PNG', base_name_override=None):
         self.export_format = export_format
         target_obj = self.find_target_object()
         if not target_obj:
@@ -214,7 +212,8 @@ class BlenderExporter:
             bpy.context.scene.frame_set(frame_num)
             
             # Clean filename - remove invalid characters
-            clean_name = animation_name.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
+            name_source = base_name_override if base_name_override else animation_name
+            clean_name = name_source.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
             file_ext = '.png' if not hasattr(self, 'export_format') else ('.png' if self.export_format == 'PNG' else '.webp')
             frame_path = os.path.join(output_dir, f"{clean_name}_frame_{i:04d}{file_ext}")
             
@@ -311,6 +310,12 @@ class AnimationExporterProperties(PropertyGroup):
         default=""
     )
     
+    # Preferred base name for exported files (set on import from file name)
+    export_basename: StringProperty(
+        name="Export Name",
+        default=""
+    )
+    
     sprite_columns: IntProperty(
         name="Columns",
         default=4,
@@ -382,10 +387,12 @@ class AnimationExporterProperties(PropertyGroup):
         update=on_camera_prop_update
     )
 
+
+
 class ANIM_OT_export_frames(Operator):
     bl_idname = "anim.export_frames"
-    bl_label = "Export to Frames"
-    bl_description = "Export animation as separate PNG frames"
+    bl_label = "Sprites"
+    bl_description = "Export animation as separate sprite images"
     
     def execute(self, context):
         props = context.scene.anim_exporter
@@ -414,6 +421,10 @@ class ANIM_OT_export_frames(Operator):
             size = int(props.frame_size)
             angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side', 'CUSTOM': 'Custom'}
             
+            # Choose export base name for frames
+            base_name = getattr(props, 'export_basename', '').strip()
+            chosen_name = base_name if base_name else action.name
+            
             frame_count = exporter.export_animation_frames(
                 animation_name=action.name,
                 output_dir=props.output_path,
@@ -421,7 +432,8 @@ class ANIM_OT_export_frames(Operator):
                 frame_count=props.frame_count,
                 camera_angle=angle_map[props.camera_angle],
                 flip_animation=props.flip_animation,
-                export_format=props.export_format
+                export_format=props.export_format,
+                base_name_override=chosen_name
             )
             
             self.report({'INFO'}, f"Exported {frame_count} frames to: {props.output_path}")
@@ -433,7 +445,7 @@ class ANIM_OT_export_frames(Operator):
 
 class ANIM_OT_export_spritesheet(Operator):
     bl_idname = "anim.export_spritesheet"
-    bl_label = "Export to SpriteSheet"
+    bl_label = "Spritesheet"
     bl_description = "Export animation as spritesheet"
     
     def execute(self, context):
@@ -463,117 +475,108 @@ class ANIM_OT_export_spritesheet(Operator):
             size = int(props.frame_size)
             angle_map = {'FRONT': 'Front', 'ISO': 'Isometric', 'SIDE': 'Side', 'CUSTOM': 'Custom'}
             
-            clean_name = action.name.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
+            # Choose export name: prefer file base name captured on import, fallback to action name
+            base_name = getattr(props, 'export_basename', '').strip()
+            chosen_name = base_name if base_name else action.name
+            clean_name = chosen_name.replace('|', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('<', '_').replace('>', '_').replace('"', '_')
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
-            output_file = os.path.join(props.output_path, f"{clean_name}_spritesheet{file_ext}")
             
             # Simple spritesheet creation
             temp_dir = os.path.join(props.output_path, "temp_frames")
             os.makedirs(temp_dir, exist_ok=True)
             
-            # Calculate grid if auto mode
-            if props.auto_grid:
-                import math
-                cols = int(math.ceil(math.sqrt(props.frame_count)))
-                rows = int(math.ceil(props.frame_count / cols))
-                max_frames = props.frame_count
-            else:
-                cols = props.sprite_columns
-                rows = props.sprite_rows
-                max_frames = cols * rows
+            # Auto-calc grid like GUI: square-ish (cols ~ sqrt(n), rows = ceil(n/cols))
+            import math
+            desired_frames = props.frame_count
+            cols = int(math.ceil(math.sqrt(desired_frames)))
+            rows = int(math.ceil(desired_frames / cols))
+            max_frames = cols * rows
             
             frame_count = exporter.export_animation_frames(
                 animation_name=action.name,
                 output_dir=temp_dir,
                 frame_size=(size, size),
-                frame_count=min(props.frame_count, max_frames),
+                frame_count=min(desired_frames, max_frames),
                 camera_angle=angle_map[props.camera_angle],
                 flip_animation=props.flip_animation,
                 export_format=props.export_format
             )
             
-            # Create spritesheet using Blender image editor
+            # Create spritesheet using GUI logic (PIL if available), fallback to Blender image API
             file_ext = '.png' if props.export_format == 'PNG' else '.webp'
             # Sort files by frame number for correct order
-            all_files = [f for f in os.listdir(temp_dir) if f.endswith(file_ext.replace('.', ''))]
+            all_files = [f for f in os.listdir(temp_dir) if f.lower().endswith(file_ext)]
             frame_files = sorted(all_files, key=lambda x: int(x.split('_frame_')[1].split('.')[0]) if '_frame_' in x else 0)
-            print(f"Found frame files: {frame_files[:5]}...")  # Show first 5
-            
+            print(f"Found frame files: {frame_files[:5]}...")
+
+            output_file = os.path.join(props.output_path, f"{clean_name}_sh_{rows}x{cols}{file_ext}")
+
             if frame_files and len(frame_files) >= frame_count:
-                # Create new image for spritesheet
                 spritesheet_width = cols * size
                 spritesheet_height = rows * size
-                
-                # Create blank image
-                spritesheet_img = bpy.data.images.new("Spritesheet", spritesheet_width, spritesheet_height, alpha=True)
-                
-                # Load all frame images
-                frame_images = []
-                for i, frame_file in enumerate(frame_files[:frame_count]):
-                    frame_path = os.path.join(temp_dir, frame_file)
-                    if os.path.exists(frame_path):
-                        img = bpy.data.images.load(frame_path)
-                        frame_images.append(img)
-                
-                # Initialize spritesheet with transparent pixels
-                pixels = [0.0, 0.0, 0.0, 0.0] * (spritesheet_width * spritesheet_height)
-                
-                # Check frame sequence
-                print(f"Processing {len(frame_images)} frames for {cols}x{rows} grid")
-                
-                for frame_index in range(min(frame_count, len(frame_images), cols * rows)):
-                    img = frame_images[frame_index]
-                    
-                    # Grid position: left to right, top to bottom
-                    col = frame_index % cols
-                    row = frame_index // cols
-                    
-                    print(f"Frame {frame_index}: position ({col}, {row})")
-                    
-                    # Get frame pixels
-                    frame_pixels = [0.0] * (size * size * 4)
-                    img.pixels.foreach_get(frame_pixels)
-                    
-                    # Copy pixels to correct position in spritesheet
-                    for y in range(size):
-                        for x in range(size):
-                            src_idx = (y * size + x) * 4
-                            dst_x = col * size + x
-                            dst_y = row * size + y
-                            dst_idx = (dst_y * spritesheet_width + dst_x) * 4
-                            
-                            if dst_idx + 3 < len(pixels) and src_idx + 3 < len(frame_pixels):
-                                pixels[dst_idx] = frame_pixels[src_idx]      # R
-                                pixels[dst_idx+1] = frame_pixels[src_idx+1]  # G
-                                pixels[dst_idx+2] = frame_pixels[src_idx+2]  # B
-                                pixels[dst_idx+3] = frame_pixels[src_idx+3]  # A
-                
-                # Set pixels to spritesheet
-                spritesheet_img.pixels.foreach_set(pixels)
-                spritesheet_img.update()
-                
-                # Save spritesheet in selected format
-                spritesheet_img.filepath_raw = output_file
-                if props.export_format == 'WEBP':
-                    spritesheet_img.file_format = 'WEBP'
+
+                if _PIL_AVAILABLE:
+                    # PIL-based spritesheet creation
+                    sheet = _PILImage.new('RGBA', (spritesheet_width, spritesheet_height))
+                    for i, frame_file in enumerate(frame_files[:frame_count]):
+                        frame_path = os.path.join(temp_dir, frame_file)
+                        try:
+                            img = _PILImage.open(frame_path).convert('RGBA')
+                        except Exception:
+                            continue
+                        col = i % cols
+                        row = i // cols
+                        x_offset = col * size
+                        y_offset = row * size
+                        sheet.paste(img, (x_offset, y_offset))
+                    # Save with correct format
+                    if props.export_format == 'WEBP':
+                        sheet.save(output_file, 'WEBP')
+                    else:
+                        sheet.save(output_file, 'PNG')
                 else:
-                    spritesheet_img.file_format = 'PNG'
-                spritesheet_img.save()
-                
-                # Clean up loaded images
-                for img in frame_images:
-                    bpy.data.images.remove(img)
-                bpy.data.images.remove(spritesheet_img)
+                    # Fallback: Blender image API
+                    spritesheet_img = bpy.data.images.new("Spritesheet", spritesheet_width, spritesheet_height, alpha=True)
+                    frame_images = []
+                    for i, frame_file in enumerate(frame_files[:frame_count]):
+                        frame_path = os.path.join(temp_dir, frame_file)
+                        if os.path.exists(frame_path):
+                            img = bpy.data.images.load(frame_path)
+                            frame_images.append(img)
+                    pixels = [0.0, 0.0, 0.0, 0.0] * (spritesheet_width * spritesheet_height)
+                    for frame_index in range(min(frame_count, len(frame_images), cols * rows)):
+                        img = frame_images[frame_index]
+                        col = frame_index % cols
+                        row = frame_index // cols
+                        frame_pixels = [0.0] * (size * size * 4)
+                        img.pixels.foreach_get(frame_pixels)
+                        for y in range(size):
+                            for x in range(size):
+                                src_idx = (y * size + x) * 4
+                                dst_x = col * size + x
+                                # Place row 0 at top without flipping the frame vertically.
+                                dst_y = (rows - 1 - row) * size + y
+                                dst_idx = (dst_y * spritesheet_width + dst_x) * 4
+                                if dst_idx + 3 < len(pixels) and src_idx + 3 < len(frame_pixels):
+                                    pixels[dst_idx] = frame_pixels[src_idx]
+                                    pixels[dst_idx+1] = frame_pixels[src_idx+1]
+                                    pixels[dst_idx+2] = frame_pixels[src_idx+2]
+                                    pixels[dst_idx+3] = frame_pixels[src_idx+3]
+                    spritesheet_img.pixels.foreach_set(pixels)
+                    spritesheet_img.update()
+                    spritesheet_img.filepath_raw = output_file
+                    spritesheet_img.file_format = 'WEBP' if props.export_format == 'WEBP' else 'PNG'
+                    spritesheet_img.save()
+                    for img in frame_images:
+                        bpy.data.images.remove(img)
+                    bpy.data.images.remove(spritesheet_img)
             
             # Cleanup temp files
             import shutil
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
             
-            if props.auto_grid:
-                self.report({'INFO'}, f"Exported spritesheet: {output_file} ({cols}x{rows})")
-            else:
-                self.report({'INFO'}, f"Exported spritesheet: {output_file} ({props.sprite_columns}x{props.sprite_rows})")
+            self.report({'INFO'}, f"Exported spritesheet: {output_file} ({rows}x{cols})")
             return {'FINISHED'}
             
         except Exception as e:
@@ -698,6 +701,14 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             bpy.ops.import_scene.gltf(filepath=filepath)
         else:
             raise Exception(f"Unsupported file format: {filepath}")
+        
+        # Store base name for export files
+        try:
+            props = bpy.context.scene.anim_exporter
+            if props is not None:
+                props.export_basename = os.path.splitext(os.path.basename(filepath))[0]
+        except Exception:
+            pass
     
     def setup_imported_objects(self):
         # Normalize scale only for objects smaller than 1.0
@@ -848,19 +859,12 @@ class ANIM_PT_exporter_panel(Panel):
         box.prop(props, "export_format")
         box.prop(props, "output_path")
         
-        box = layout.box()
-        box.label(text="Spritesheet Settings:")
-        box.prop(props, "auto_grid")
-        
-        row = box.row()
-        row.enabled = not props.auto_grid
-        row.prop(props, "sprite_columns")
-        row.prop(props, "sprite_rows")
-        
-        layout.separator()
-        row = layout.row()
-        row.operator("anim.export_frames", text="Export to Frames", icon='RENDER_ANIMATION')
-        row.operator("anim.export_spritesheet", text="Export to SpriteSheet", icon='TEXTURE')
+        # New unified export block
+        export_box = layout.box()
+        export_box.label(text="Export animations to:")
+        row = export_box.row()
+        row.operator("anim.export_frames", text="Sprites", icon='RENDER_ANIMATION')
+        row.operator("anim.export_spritesheet", text="Spritesheet", icon='TEXTURE')
 
 classes = [
     AnimationExporterProperties,
