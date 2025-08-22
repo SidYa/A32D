@@ -55,7 +55,8 @@ def on_camera_prop_update(self, context):
 
 def _set_3dview_left_ortho_and_show_sidebar():
     """Set the first 3D View to LEFT with a proper override (like clicking -X).
-    Also activate the A32D sidebar tab using a UI-region override. Returns True if both succeed.
+    Also activate the A32D sidebar tab using the correct 'active_panel_category' attribute.
+    Returns True if both view and tab are set successfully.
     """
     try:
         screen = bpy.context.screen
@@ -88,19 +89,13 @@ def _set_3dview_left_ortho_and_show_sidebar():
                 except Exception:
                     view_ok = False
             if ui_region:
-                # Prefer operator to set active sidebar category, fallback to setattr
+                # Set active sidebar category using the correct attribute
                 try:
-                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=ui_region):
-                        bpy.ops.wm.context_set_string(data_path='region.ui.active_category', value='A32D')
+                    if hasattr(ui_region, 'active_panel_category'):
+                        setattr(ui_region, 'active_panel_category', 'A32D')
                         tab_ok = True
                 except Exception:
-                    try:
-                        setattr(ui_region, 'active_category', 'A32D')
-                        tab_ok = True
-                    except Exception:
-                        tab_ok = False
-            # Stop after first VIEW_3D area handled
-            break
+                    tab_ok = False
         return bool(view_ok and tab_ok)
     except Exception:
         return False
@@ -798,6 +793,8 @@ class ANIM_OT_export_spritesheet(Operator):
         # Restore original resolution
         bpy.context.scene.render.resolution_x = original_x
         bpy.context.scene.render.resolution_y = original_y
+
+# Debug operator removed per request
 
 class ANIM_OT_import_model(Operator, ImportHelper):
     bl_idname = "anim.import_model"
