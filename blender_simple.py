@@ -53,9 +53,129 @@ def on_camera_prop_update(self, context):
     """Update callback for camera-related properties to refresh preview."""
     refresh_camera_preview(context)
 
+def _set_3dview_left_ortho_and_show_sidebar():
+    """Set the first 3D View to LEFT with a proper override (like clicking -X).
+    Also activate the A32D sidebar tab using a UI-region override. Returns True if both succeed.
+    """
+    try:
+        screen = bpy.context.screen
+        if not screen:
+            return False
+        view_ok = False
+        tab_ok = False
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            # Ensure the sidebar (N-panel) is visible for this area
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    space.show_region_ui = True
+                    break
+            win_region = None
+            ui_region = None
+            for region in area.regions:
+                if region.type == 'WINDOW':
+                    win_region = region
+                elif region.type == 'UI':
+                    ui_region = region
+            if win_region:
+                try:
+                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=win_region):
+                        bpy.ops.view3d.view_axis(type='LEFT')
+                        if bpy.context.space_data and getattr(bpy.context.space_data, 'region_3d', None):
+                            bpy.context.space_data.region_3d.view_perspective = 'ORTHO'
+                        view_ok = True
+                except Exception:
+                    view_ok = False
+            if ui_region:
+                # Prefer operator to set active sidebar category, fallback to setattr
+                try:
+                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=ui_region):
+                        bpy.ops.wm.context_set_string(data_path='region.ui.active_category', value='A32D')
+                        tab_ok = True
+                except Exception:
+                    try:
+                        setattr(ui_region, 'active_category', 'A32D')
+                        tab_ok = True
+                    except Exception:
+                        tab_ok = False
+            # Stop after first VIEW_3D area handled
+            break
+        return bool(view_ok and tab_ok)
+    except Exception:
+        return False
+
+def _remove_default_collection_child_on_start():
+    """Flatten any default child 'Collection' under the Scene Collection and remove it if emptyable."""
+    try:
+        scene = bpy.context.scene
+        if not scene:
+            return
+        master = scene.collection
+        # Move contents of any child named 'Collection' directly to master, then remove that child
+        for child in list(master.children):
+            if child.name == 'Collection':
+                # Move objects
+                for obj in list(child.objects):
+                    if obj.name not in master.objects:
+                        master.objects.link(obj)
+                    try:
+                        child.objects.unlink(obj)
+                    except Exception:
+                        pass
+                # Move sub-collections
+                for sub in list(child.children):
+                    if sub not in master.children:
+                        master.children.link(sub)
+                    try:
+                        child.children.unlink(sub)
+                    except Exception:
+                        pass
+                # Unlink and remove the emptied child
+                try:
+                    master.children.unlink(child)
+                except Exception:
+                    pass
+                try:
+                    bpy.data.collections.remove(child)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+def _startup_setup_once():
+    """Timer callback to apply initial viewport and collection cleanup after Blender opens.
+    Retries until Left Ortho and A32D tab are both set.
+    """
+    try:
+        done = _set_3dview_left_ortho_and_show_sidebar()
+        _remove_default_collection_child_on_start()
+        return None if done else 0.5
+    except Exception:
+        return 0.5
+
 class BlenderExporter:
     def __init__(self):
         self.setup_scene()
+    
+    def _move_object_to_scene_root(self, obj):
+        try:
+            scene = bpy.context.scene
+            if not scene or not obj:
+                return
+            master = scene.collection
+            # Link to master if not already
+            if obj.name not in master.objects:
+                master.objects.link(obj)
+            # Unlink from all other collections
+            for coll in list(obj.users_collection):
+                if coll is not master:
+                    try:
+                        coll.objects.unlink(obj)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         
     def setup_scene(self):
         bpy.context.scene.render.engine = 'BLENDER_EEVEE_NEXT'
@@ -73,6 +193,8 @@ class BlenderExporter:
         sun = bpy.context.active_object
         sun.data.energy = 3
         sun.data.color = (1.0, 1.0, 1.0)  # White color #FFFFFF
+        # Ensure sun is in Scene Collection root
+        self._move_object_to_scene_root(sun)
         
         # Set world background to white
         if bpy.context.scene.world:
@@ -88,6 +210,8 @@ class BlenderExporter:
             
         bpy.ops.object.camera_add()
         camera = bpy.context.active_object
+        # Ensure camera is in Scene Collection root
+        self._move_object_to_scene_root(camera)
         
         # Use static object bounds for consistent scale across all animations
         center, size = self.get_static_bounds(target_object)
@@ -289,13 +413,13 @@ class AnimationExporterProperties(PropertyGroup):
     )
     
     start_frame: IntProperty(
-        name="Start Frame",
+        name="Start:",
         default=1,
         min=1
     )
 
     end_frame: IntProperty(
-        name="End Frame",
+        name="End:",
         default=1,
         min=1
     )
@@ -703,6 +827,8 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 self.import_single_file(self.filepath)
                 
             self.setup_imported_objects()
+            # Remove default Collection not used by the add-on
+            self.remove_default_collection()
             self.set_animation_frame_count(context)
             # Create/position camera immediately for live preview
             refresh_camera_preview(context)
@@ -812,6 +938,53 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 for node in nodes_to_remove:
                     nodes.remove(node)
     
+    def remove_default_collection(self):
+        """Flatten objects to Scene Collection and remove default 'Collection' child if possible."""
+        try:
+            scene = bpy.context.scene
+            if scene is None:
+                return
+            master = scene.collection
+            # Move contents of any child named 'Collection' directly to master, then remove that child
+            default_child = None
+            for child in list(master.children):
+                if child.name == "Collection":
+                    default_child = child
+                    # Move objects
+                    for obj in list(child.objects):
+                        if obj.name not in master.objects:
+                            master.objects.link(obj)
+                        try:
+                            child.objects.unlink(obj)
+                        except Exception:
+                            pass
+                    # Move grandchildren collections to master
+                    for sub in list(child.children):
+                        if sub not in master.children:
+                            master.children.link(sub)
+                        try:
+                            child.children.unlink(sub)
+                        except Exception:
+                            pass
+                    # Unlink and remove the empty 'Collection' child
+                    try:
+                        master.children.unlink(child)
+                    except Exception:
+                        pass
+                    try:
+                        bpy.data.collections.remove(child)
+                    except Exception:
+                        pass
+            # Also remove any other orphan collections named 'Collection' (not master)
+            for coll in list(bpy.data.collections):
+                if coll.name == "Collection" and coll is not master:
+                    try:
+                        bpy.data.collections.remove(coll)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    
     def set_animation_frame_count(self, context):
         """Automatically set frame range based on animation"""
         if bpy.data.actions:
@@ -904,6 +1077,11 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.anim_exporter = bpy.props.PointerProperty(type=AnimationExporterProperties)
+    # Schedule a one-shot startup setup to configure viewport and collections
+    try:
+        bpy.app.timers.register(_startup_setup_once, first_interval=0.5)
+    except Exception:
+        pass
 
 def unregister():
     for cls in classes:
