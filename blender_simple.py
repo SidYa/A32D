@@ -175,7 +175,7 @@ class BlenderExporter:
         return None
         
     def export_animation_frames(self, animation_name, output_dir, frame_size=(128, 128), 
-                               frame_count=16, camera_angle="Front", flip_animation=False, export_format='PNG', base_name_override=None):
+                               start_frame=None, end_frame=None, camera_angle="Front", flip_animation=False, export_format='PNG', base_name_override=None):
         self.export_format = export_format
         target_obj = self.find_target_object()
         if not target_obj:
@@ -196,19 +196,21 @@ class BlenderExporter:
             target_obj.animation_data_create()
             target_obj.animation_data.action = action
             
-        frame_start = int(action.frame_range[0])
-        frame_end = int(action.frame_range[1])
-        total_frames = frame_end - frame_start + 1
-        
-        if frame_count > total_frames:
-            frame_count = total_frames
-            
-        frame_step = max(1, total_frames // frame_count)
+        action_start = int(action.frame_range[0])
+        action_end = int(action.frame_range[1])
+        if start_frame is None:
+            start_frame = action_start
+        if end_frame is None:
+            end_frame = action_end
+        start_frame = max(action_start, int(start_frame))
+        end_frame = min(action_end, int(end_frame))
+        if start_frame > end_frame:
+            start_frame, end_frame = end_frame, start_frame
+        frames_to_export = list(range(start_frame, end_frame + 1))
         
         os.makedirs(output_dir, exist_ok=True)
         
-        for i in range(frame_count):
-            frame_num = frame_start + (i * frame_step)
+        for i, frame_num in enumerate(frames_to_export):
             bpy.context.scene.frame_set(frame_num)
             
             # Clean filename - remove invalid characters
@@ -227,7 +229,7 @@ class BlenderExporter:
             # Restore original format
             bpy.context.scene.render.image_settings.file_format = original_format
             
-        return frame_count
+        return len(frames_to_export)
     
     def analyze_animation_bounds(self, target_object, animation_name, padding_enabled=True, padding_percent=20):
         """Analyze all animation frames to find maximum bounds"""
@@ -286,8 +288,14 @@ class AnimationExporterProperties(PropertyGroup):
         default='512'
     )
     
-    frame_count: IntProperty(
-        name="Frame Count",
+    start_frame: IntProperty(
+        name="Start Frame",
+        default=1,
+        min=1
+    )
+
+    end_frame: IntProperty(
+        name="End Frame",
         default=1,
         min=1
     )
@@ -429,7 +437,8 @@ class ANIM_OT_export_frames(Operator):
                 animation_name=action.name,
                 output_dir=props.output_path,
                 frame_size=(size, size),
-                frame_count=props.frame_count,
+                start_frame=props.start_frame,
+                end_frame=props.end_frame,
                 camera_angle=angle_map[props.camera_angle],
                 flip_animation=props.flip_animation,
                 export_format=props.export_format,
@@ -487,16 +496,26 @@ class ANIM_OT_export_spritesheet(Operator):
             
             # Auto-calc grid like GUI: square-ish (cols ~ sqrt(n), rows = ceil(n/cols))
             import math
-            desired_frames = props.frame_count
+            # derive desired frame count from range
+            action_start = int(action.frame_range[0])
+            action_end = int(action.frame_range[1])
+            start_f = max(action_start, int(props.start_frame))
+            end_f = min(action_end, int(props.end_frame))
+            if start_f > end_f:
+                start_f, end_f = end_f, start_f
+            desired_frames = end_f - start_f + 1
             cols = int(math.ceil(math.sqrt(desired_frames)))
             rows = int(math.ceil(desired_frames / cols))
             max_frames = cols * rows
             
+            export_count = min(desired_frames, max_frames)
+            end_export = start_f + export_count - 1
             frame_count = exporter.export_animation_frames(
                 animation_name=action.name,
                 output_dir=temp_dir,
                 frame_size=(size, size),
-                frame_count=min(desired_frames, max_frames),
+                start_frame=start_f,
+                end_frame=end_export,
                 camera_angle=angle_map[props.camera_angle],
                 flip_animation=props.flip_animation,
                 export_format=props.export_format
@@ -794,13 +813,13 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                     nodes.remove(node)
     
     def set_animation_frame_count(self, context):
-        """Automatically set frame count based on animation"""
+        """Automatically set frame range based on animation"""
         if bpy.data.actions:
             action = bpy.data.actions[0]  # Take the first animation
             frame_start = int(action.frame_range[0])
             frame_end = int(action.frame_range[1])
-            total_frames = frame_end - frame_start + 1
-            context.scene.anim_exporter.frame_count = total_frames
+            context.scene.anim_exporter.start_frame = frame_start
+            context.scene.anim_exporter.end_frame = frame_end
     
     def clear_scene_and_cache(self):
         # Clear all objects
@@ -848,7 +867,9 @@ class ANIM_PT_exporter_panel(Panel):
         frame_box = layout.box()
         frame_box.label(text="Frame Settings:")
         frame_box.prop(props, "frame_size")
-        frame_box.prop(props, "frame_count")
+        row = frame_box.row()
+        row.prop(props, "start_frame")
+        row.prop(props, "end_frame")
 
         # Camera settings block
         cam_box = layout.box()
