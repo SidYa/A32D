@@ -7,8 +7,6 @@ A Blender add-on for converting 3D animations into 2D sprite sheets for game dev
 - **Import**: FBX, GLB, GLTF files with animations
 - **Export**: Individual frames or sprite sheets (PNG/WEBP)
 - **Camera**: Front, Isometric, Side, Custom angles with flip option
-- **Auto Setup**: Optimized workspace with only essential tabs (Layout, UV Editing, Texture Paint, Shading, Animation)
-- **Console**: Auto-hide system console and close on exit
 
 ## Installation
 
@@ -18,8 +16,8 @@ A Blender add-on for converting 3D animations into 2D sprite sheets for game dev
 
 ## Usage
 
-1. Launch via `run_blender.bat`
-2. Find "A32D" panel in 3D Viewport sidebar
+1. Launch via `run_blender.bat` or `./run_blender_mac.sh`, `./run_blender_linux.sh`.
+2. Find "A32D" panel in 3D Viewport sidebar (opened automatically)
 3. Import your 3D model (FBX/GLB/GLTF)
 4. Configure settings and export
 
