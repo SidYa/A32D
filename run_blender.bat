@@ -54,12 +54,7 @@ if "%BLENDER_PATH%"=="" (
 :FOUND_BLENDER
 echo Found Blender: "%BLENDER_PATH%"
 
-REM Check Blender version
-for /f "tokens=3" %%v in ('"%BLENDER_PATH%" --version 2^>^&1 ^| findstr /r /c:"^Blender "') do (
-    set "BLENDER_VERSION=%%v"
-)
-
-echo Blender version: %BLENDER_VERSION%
+REM Blender found and ready to use
 echo Starting application...
 echo.
 
