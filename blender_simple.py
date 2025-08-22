@@ -138,6 +138,29 @@ def _remove_default_collection_child_on_start():
     except Exception:
         pass
 
+def _setup_workspace_tabs():
+    """Remove unnecessary workspace tabs, keep only Layout, UV Editing, Texture Paint, Shading, Animation"""
+    try:
+        required_tabs = {'Layout', 'UV Editing', 'Texture Paint', 'Shading', 'Animation'}
+        
+        # Switch to Layout first to avoid deleting active workspace
+        layout_ws = bpy.data.workspaces.get('Layout')
+        if layout_ws:
+            bpy.context.window.workspace = layout_ws
+        
+        # Remove unwanted workspaces
+        workspaces_to_remove = [ws for ws in bpy.data.workspaces if ws.name not in required_tabs]
+        
+        for workspace in workspaces_to_remove:
+            try:
+                bpy.data.batch_remove(ids=[workspace])
+            except Exception:
+                pass
+                
+        return True
+    except Exception:
+        return False
+
 def _startup_setup_once():
     """Timer callback to apply initial viewport and collection cleanup after Blender opens.
     Retries until Left Ortho and A32D tab are both set.
@@ -145,6 +168,7 @@ def _startup_setup_once():
     try:
         done = _set_3dview_left_ortho_and_show_sidebar()
         _remove_default_collection_child_on_start()
+        _setup_workspace_tabs()
         return None if done else 0.5
     except Exception:
         return 0.5
@@ -645,7 +669,6 @@ class ANIM_OT_export_spritesheet(Operator):
             # Sort files by frame number for correct order
             all_files = [f for f in os.listdir(temp_dir) if f.lower().endswith(file_ext)]
             frame_files = sorted(all_files, key=lambda x: int(x.split('_frame_')[1].split('.')[0]) if '_frame_' in x else 0)
-            print(f"Found frame files: {frame_files[:5]}...")
 
             output_file = os.path.join(props.output_path, f"{clean_name}_sh_{rows}x{cols}{file_ext}")
 
