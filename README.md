@@ -23,7 +23,7 @@ A Blender add-on for converting 3D animations into 2D sprite sheets for game dev
 
 ## Settings
 
-- **Frame Size**: 64x64 to 2048x2048 pixels
+- **Frame Size**: 64x64 to 4096x4096 pixels
 - **Frame Range**: Start/End frame selection
 - **Camera Angle**: Front, Isometric, Side, or Custom
 - **Flip Camera**: Mirror animation horizontally
