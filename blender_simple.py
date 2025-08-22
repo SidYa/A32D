@@ -587,6 +587,80 @@ class AnimationExporterProperties(PropertyGroup):
 
 
 
+class ANIM_OT_prev_animation(Operator):
+    bl_idname = "anim.prev_animation"
+    bl_label = "Prev Anim"
+    bl_description = "Switch to previous animation"
+    
+    def execute(self, context):
+        if not bpy.data.actions:
+            return {'CANCELLED'}
+            
+        # Знаходимо поточну анімацію
+        current_action = None
+        target_obj = None
+        for obj in bpy.data.objects:
+            if obj.type == 'ARMATURE' and obj.animation_data:
+                target_obj = obj
+                current_action = obj.animation_data.action
+                break
+                
+        if not target_obj:
+            return {'CANCELLED'}
+            
+        actions = list(bpy.data.actions)
+        current_index = actions.index(current_action) if current_action in actions else 0
+        prev_index = (current_index - 1) % len(actions)
+        
+        # Перемикаємо на попередню анімацію
+        new_action = actions[prev_index]
+        target_obj.animation_data.action = new_action
+        
+        # Оновлюємо діапазон
+        props = context.scene.anim_exporter
+        props.start_frame = int(new_action.frame_range[0])
+        props.end_frame = int(new_action.frame_range[1])
+        
+        self.report({'INFO'}, f"Switched to: {new_action.name}")
+        return {'FINISHED'}
+
+class ANIM_OT_next_animation(Operator):
+    bl_idname = "anim.next_animation"
+    bl_label = "Next Anim"
+    bl_description = "Switch to next animation"
+    
+    def execute(self, context):
+        if not bpy.data.actions:
+            return {'CANCELLED'}
+            
+        # Знаходимо поточну анімацію
+        current_action = None
+        target_obj = None
+        for obj in bpy.data.objects:
+            if obj.type == 'ARMATURE' and obj.animation_data:
+                target_obj = obj
+                current_action = obj.animation_data.action
+                break
+                
+        if not target_obj:
+            return {'CANCELLED'}
+            
+        actions = list(bpy.data.actions)
+        current_index = actions.index(current_action) if current_action in actions else 0
+        next_index = (current_index + 1) % len(actions)
+        
+        # Перемикаємо на наступну анімацію
+        new_action = actions[next_index]
+        target_obj.animation_data.action = new_action
+        
+        # Оновлюємо діапазон
+        props = context.scene.anim_exporter
+        props.start_frame = int(new_action.frame_range[0])
+        props.end_frame = int(new_action.frame_range[1])
+        
+        self.report({'INFO'}, f"Switched to: {new_action.name}")
+        return {'FINISHED'}
+
 class ANIM_OT_export_frames(Operator):
     bl_idname = "anim.export_frames"
     bl_label = "Sprites"
@@ -1071,25 +1145,12 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             pass
     
     def set_animation_frame_count(self, context):
-        """Automatically set frame range based on animation"""
+        """Set frame range in Frame Settings based on first animation"""
         if bpy.data.actions:
-            # Знаходимо максимальний діапазон серед усіх анімацій
-            min_start = float('inf')
-            max_end = float('-inf')
-            
-            for action in bpy.data.actions:
-                start = int(action.frame_range[0])
-                end = int(action.frame_range[1])
-                min_start = min(min_start, start)
-                max_end = max(max_end, end)
-            
-            # Встановлюємо діапазон в timeline Blender
-            context.scene.frame_start = int(min_start)
-            context.scene.frame_end = int(max_end)
-            
-            # Також встановлюємо в нашому експортері
-            context.scene.anim_exporter.start_frame = int(min_start)
-            context.scene.anim_exporter.end_frame = int(max_end)
+            # Встановлюємо тільки в Frame Settings нашого експортера
+            first_action = bpy.data.actions[0]
+            context.scene.anim_exporter.start_frame = int(first_action.frame_range[0])
+            context.scene.anim_exporter.end_frame = int(first_action.frame_range[1])
     
     def clear_scene_and_cache(self):
         # Clear all objects
@@ -1203,6 +1264,9 @@ class ANIM_PT_exporter_panel(Panel):
         row = frame_box.row()
         row.prop(props, "start_frame")
         row.prop(props, "end_frame")
+        row = frame_box.row()
+        row.operator("anim.prev_animation", text="< Anim")
+        row.operator("anim.next_animation", text="Anim >")
 
         # Camera settings block
         cam_box = layout.box()
@@ -1230,6 +1294,8 @@ class ANIM_PT_exporter_panel(Panel):
 
 classes = [
     AnimationExporterProperties,
+    ANIM_OT_prev_animation,
+    ANIM_OT_next_animation,
     ANIM_OT_export_frames,
     ANIM_OT_export_spritesheet,
     ANIM_OT_import_model,
