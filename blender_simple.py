@@ -33,14 +33,23 @@ def refresh_camera_preview(context):
     if context.object and context.object.animation_data and context.object.animation_data.action:
         action_name = context.object.animation_data.action.name
 
-    exporter.setup_camera(
-        target,
-        angle_type=angle_map.get(props.camera_angle, 'Side'),
-        animation_name=action_name,
-        padding_enabled=props.camera_padding_enabled,
-        padding_percent=props.camera_padding_percent
-    )
-    exporter.setup_flip_modifier(props.flip_animation, target, angle_map.get(props.camera_angle, 'Side'))
+    # Налаштовуємо камеру
+    if props.auto_camera:
+        exporter.setup_camera(
+            target,
+            angle_type=angle_map.get(props.camera_angle, 'Side'),
+            animation_name=action_name,
+            auto_camera=props.auto_camera,
+            manual_scale=props.manual_camera_scale
+        )
+        exporter.setup_flip_modifier(props.flip_animation, target, angle_map.get(props.camera_angle, 'Side'))
+    else:
+        # В ручному режимі застосовуємо слайдери
+        camera = bpy.context.scene.camera
+        if camera and camera.data.type == 'ORTHO' and target:
+            center, size = exporter.get_static_bounds(target)
+            base_ortho_scale = size * 1.2
+            camera.data.ortho_scale = base_ortho_scale * props.manual_camera_scale
     # Ensure square preview to match export output
     try:
         size_val = int(props.frame_size)
@@ -170,6 +179,18 @@ def _startup_setup_once():
         _remove_default_collection_child_on_start()
         _setup_workspace_tabs()
         
+        # Налаштування viewport: Wireframe, приховання кісток і вимкнення X-Ray
+        for area in bpy.context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for space in area.spaces:
+                    if space.type == 'VIEW_3D':
+                        space.shading.type = 'WIREFRAME'
+                        space.overlay.show_bones = False
+                        space.shading.show_xray = False  # Вимикаємо X-Ray
+                        space.shading.show_xray_wireframe = False  # Вимикаємо X-Ray для wireframe
+                        break
+                break
+        
         # Hide system console at the end
         if done:
             try:
@@ -231,7 +252,13 @@ class BlenderExporter:
             if bg_node:
                 bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # White color #FFFFFF
         
-    def setup_camera(self, target_object, angle_type="Front", animation_name=None, padding_enabled=True, padding_percent=20):
+    def setup_camera(self, target_object, angle_type="Front", animation_name=None, auto_camera=True, manual_scale=1.0):
+        # Якщо автоматична камера вимкнена, не чіпаємо існуючу камеру
+        if not auto_camera:
+            camera = bpy.context.scene.camera
+            if camera:
+                return  # Залишаємо камеру як є
+        
         if bpy.data.objects.get("Camera"):
             bpy.data.objects.remove(bpy.data.objects["Camera"])
             
@@ -242,8 +269,10 @@ class BlenderExporter:
         
         # Use static object bounds for consistent scale across all animations
         center, size = self.get_static_bounds(target_object)
-        if padding_enabled:
-            size *= (1 + padding_percent / 100)
+        
+        # Застосовуємо ручні налаштування якщо auto_camera вимкнено
+        if not auto_camera:
+            size *= manual_scale
         
         distance = size * 2.5
         
@@ -333,8 +362,14 @@ class BlenderExporter:
             raise Exception("No objects found")
             
         props = bpy.context.scene.anim_exporter
-        self.setup_camera(target_obj, camera_angle, animation_name, props.camera_padding_enabled, props.camera_padding_percent)
-        self.setup_flip_modifier(flip_animation, target_obj, camera_angle)
+        
+        # Налаштовуємо камеру тільки якщо авто режим включений
+        if props.auto_camera:
+            self.setup_camera(target_obj, camera_angle, animation_name, props.auto_camera, props.manual_camera_scale)
+            self.setup_flip_modifier(flip_animation, target_obj, camera_angle)
+        else:
+            # В ручному режимі не чіпаємо камеру при експорті
+            pass
         
         bpy.context.scene.render.resolution_x = frame_size[0]
         bpy.context.scene.render.resolution_y = frame_size[1]
@@ -512,21 +547,7 @@ class AnimationExporterProperties(PropertyGroup):
         default='PNG'
     )
     
-    camera_padding_enabled: bpy.props.BoolProperty(
-        name="Add Camera Padding",
-        default=False,
-        description="Add padding so the model isn't clipped",
-        update=on_camera_prop_update
-    )
-    
-    camera_padding_percent: IntProperty(
-        name="Camera Padding (%)",
-        default=20,
-        min=1,
-        max=100,
-        description="Padding percentage for camera",
-        update=on_camera_prop_update
-    )
+
 
     # Custom camera controls (visible only when camera_angle == 'CUSTOM')
     custom_orientation: EnumProperty(
@@ -546,6 +567,23 @@ class AnimationExporterProperties(PropertyGroup):
         description="Rotation angle for Custom orientation",
         update=on_camera_prop_update
     )
+    
+    auto_camera: bpy.props.BoolProperty(
+        name="Avto Camera",
+        default=True,
+        description="Automatically position camera based on model",
+        update=on_camera_prop_update
+    )
+    
+    manual_camera_scale: bpy.props.FloatProperty(
+        name="Camera Scale",
+        default=1.0,
+        min=0.01,
+        description="Manual camera scale (ortho_scale multiplier)",
+        update=on_camera_prop_update
+    )
+    
+
 
 
 
@@ -969,6 +1007,21 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 
                 for node in nodes_to_remove:
                     nodes.remove(node)
+                    
+        # Видаляємо сміття після GLB/GLTF імпорту
+        objects_to_remove = []
+        for obj in bpy.data.objects:
+            if ('glTF_not_exported' in obj.name or 'Icosphere' in obj.name):
+                objects_to_remove.append(obj)
+        
+        for obj in objects_to_remove:
+            bpy.data.objects.remove(obj, do_unlink=True)
+            
+        # Налаштування viewport вже зроблені при стартупі
+        # (Material Preview і приховання кісток)
+                
+        # Витягуємо модель з ієрархії Empty об'єктів (тільки для GLB)
+        self.flatten_hierarchy_and_center()
     
     def remove_default_collection(self):
         """Flatten objects to Scene Collection and remove default 'Collection' child if possible."""
@@ -1020,11 +1073,23 @@ class ANIM_OT_import_model(Operator, ImportHelper):
     def set_animation_frame_count(self, context):
         """Automatically set frame range based on animation"""
         if bpy.data.actions:
-            action = bpy.data.actions[0]  # Take the first animation
-            frame_start = int(action.frame_range[0])
-            frame_end = int(action.frame_range[1])
-            context.scene.anim_exporter.start_frame = frame_start
-            context.scene.anim_exporter.end_frame = frame_end
+            # Знаходимо максимальний діапазон серед усіх анімацій
+            min_start = float('inf')
+            max_end = float('-inf')
+            
+            for action in bpy.data.actions:
+                start = int(action.frame_range[0])
+                end = int(action.frame_range[1])
+                min_start = min(min_start, start)
+                max_end = max(max_end, end)
+            
+            # Встановлюємо діапазон в timeline Blender
+            context.scene.frame_start = int(min_start)
+            context.scene.frame_end = int(max_end)
+            
+            # Також встановлюємо в нашому експортері
+            context.scene.anim_exporter.start_frame = int(min_start)
+            context.scene.anim_exporter.end_frame = int(max_end)
     
     def clear_scene_and_cache(self):
         # Clear all objects
@@ -1052,6 +1117,38 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             if image.users == 0:
                 bpy.data.images.remove(image)
     
+    def flatten_hierarchy_and_center(self):
+        """Витягує модель з ієрархії Empty об'єктів (тільки GLB)"""
+        try:
+            # Знаходимо основні об'єкти і Empty контейнери
+            main_objects = []
+            empty_containers = []
+            
+            for obj in bpy.data.objects:
+                if obj.type in ['MESH', 'ARMATURE']:
+                    main_objects.append(obj)
+                elif obj.type == 'EMPTY':
+                    empty_containers.append(obj)
+            
+            # Тільки для GLB файлів (які мають Empty контейнери)
+            if empty_containers and main_objects:
+                cursor_location = bpy.context.scene.cursor.location
+                
+                for obj in main_objects:
+                    # Очищуємо parent і переміщуємо на курсор
+                    if obj.parent:
+                        world_matrix = obj.matrix_world.copy()
+                        obj.parent = None
+                        obj.matrix_world = world_matrix
+                    obj.location = cursor_location
+                    
+                # Видаляємо всі Empty контейнери
+                for empty in empty_containers:
+                    bpy.data.objects.remove(empty, do_unlink=True)
+                    
+        except Exception as e:
+            print(f"Error flattening hierarchy: {e}")
+    
     def auto_focus_imported_objects(self):
         """Auto-focus viewport on imported objects"""
         try:
@@ -1062,13 +1159,22 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                     obj.select_set(True)
                     bpy.context.view_layer.objects.active = obj
             
-            # Frame selected objects in viewport
+            # Фокусування: для GLB на курсор, для FBX на об'єкти
+            # Перевіряємо чи є Empty об'єкти (означає GLB)
+            has_empty = any(obj.type == 'EMPTY' for obj in bpy.data.objects)
+            
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
                     for region in area.regions:
                         if region.type == 'WINDOW':
                             with bpy.context.temp_override(area=area, region=region):
-                                bpy.ops.view3d.view_selected()
+                                if has_empty:  # GLB - фокус на курсор
+                                    bpy.ops.view3d.view_center_cursor()
+                                    # Збільшуємо масштаб
+                                    for _ in range(6):
+                                        bpy.ops.view3d.zoom(delta=1)
+                                else:  # FBX - фокус на об'єкти
+                                    bpy.ops.view3d.view_selected()
                             break
                     break
         except Exception:
@@ -1106,9 +1212,12 @@ class ANIM_PT_exporter_panel(Panel):
             cam_box.prop(props, "custom_orientation")
             cam_box.prop(props, "custom_camera_deg")
         cam_box.prop(props, "flip_animation")
-        cam_box.prop(props, "camera_padding_enabled")
-        if props.camera_padding_enabled:
-            cam_box.prop(props, "camera_padding_percent")
+        cam_box.prop(props, "auto_camera")
+        
+        if props.auto_camera:
+            pass  # Нічого додаткового в авто режимі
+        else:
+            cam_box.prop(props, "manual_camera_scale")
 
         # Export block with format and output above buttons
         export_box = layout.box()
