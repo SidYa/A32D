@@ -169,6 +169,14 @@ def _startup_setup_once():
         done = _set_3dview_left_ortho_and_show_sidebar()
         _remove_default_collection_child_on_start()
         _setup_workspace_tabs()
+        
+        # Hide system console at the end
+        if done:
+            try:
+                bpy.ops.wm.console_toggle()
+            except Exception:
+                pass
+        
         return None if done else 0.5
     except Exception:
         return 0.5

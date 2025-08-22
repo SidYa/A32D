@@ -63,4 +63,4 @@ REM Run Blender with our script
 
 echo.
 echo Application closed.
-pause
+exit
