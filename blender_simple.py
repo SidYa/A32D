@@ -893,6 +893,9 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                     max(obj.scale[2], 1.0) if obj.scale[2] < 1.0 else obj.scale[2]
                 ]
                 obj.scale = new_scale
+        
+        # Auto-focus on imported objects
+        self.auto_focus_imported_objects()
                 
         # Set side view (-X)
         for area in bpy.context.screen.areas:
@@ -1047,6 +1050,28 @@ class ANIM_OT_import_model(Operator, ImportHelper):
         for image in bpy.data.images:
             if image.users == 0:
                 bpy.data.images.remove(image)
+    
+    def auto_focus_imported_objects(self):
+        """Auto-focus viewport on imported objects"""
+        try:
+            # Select all imported objects
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in bpy.data.objects:
+                if obj.type in ['MESH', 'ARMATURE']:
+                    obj.select_set(True)
+                    bpy.context.view_layer.objects.active = obj
+            
+            # Frame selected objects in viewport
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            with bpy.context.temp_override(area=area, region=region):
+                                bpy.ops.view3d.view_selected()
+                            break
+                    break
+        except Exception:
+            pass
 
 class ANIM_PT_exporter_panel(Panel):
     bl_label = "3D to 2D Animation Exporter"
