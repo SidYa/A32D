@@ -33,6 +33,23 @@ def refresh_camera_preview(context):
     if context.object and context.object.animation_data and context.object.animation_data.action:
         action_name = context.object.animation_data.action.name
 
+    # If this action has stored rotation correction, apply it temporarily to the target for accurate camera placement
+    correction_deg = 0
+    orig_matrix = None
+    try:
+        act = bpy.data.actions.get(action_name) if action_name else None
+        if act and 'rotation_correction' in act:
+            correction_deg = int(act['rotation_correction'])
+    except Exception:
+        correction_deg = 0
+    if correction_deg and target:
+        try:
+            orig_matrix = target.matrix_world.copy()
+            rotm = mathutils.Matrix.Rotation(math.radians(correction_deg), 4, 'Z')
+            target.matrix_world = rotm @ orig_matrix
+        except Exception:
+            orig_matrix = None
+
     # Налаштовуємо камеру
     if props.auto_camera:
         exporter.setup_camera(
@@ -57,6 +74,13 @@ def refresh_camera_preview(context):
         size_val = 512
     bpy.context.scene.render.resolution_x = size_val
     bpy.context.scene.render.resolution_y = size_val
+
+    # Restore target matrix if we temporarily applied correction
+    if orig_matrix is not None and target is not None:
+        try:
+            target.matrix_world = orig_matrix
+        except Exception:
+            pass
 
 def on_camera_prop_update(self, context):
     """Update callback for camera-related properties to refresh preview."""
@@ -205,6 +229,77 @@ def _startup_setup_once():
 class BlenderExporter:
     def __init__(self):
         self.setup_scene()
+
+    def analyze_and_store_action_rotations(self, armature_obj=None):
+        """Analyze actions and store simple Z-rotation correction (degrees) on each action
+        as action['rotation_correction']. This attempts to detect 90deg misalignments from the
+        first action and store a correction to realign them.
+        """
+        try:
+            if not bpy.data.actions:
+                return
+            if armature_obj is None:
+                armature_obj = self.find_target_object()
+            if armature_obj is None:
+                return
+
+            def action_angle(a):
+                try:
+                    armature_obj.animation_data_create()
+                    armature_obj.animation_data.action = a
+                    bpy.context.scene.frame_set(int(a.frame_range[0]))
+                    bpy.context.view_layer.update()
+                    # gather mesh bounding box around armature
+                    mesh_objs = [o for o in bpy.data.objects if o.type == 'MESH']
+                    if mesh_objs:
+                        minc = [float('inf')] * 3
+                        maxc = [float('-inf')] * 3
+                        for obj in mesh_objs:
+                            for corner in obj.bound_box:
+                                v = obj.matrix_world @ mathutils.Vector(corner)
+                                for i in range(3):
+                                    minc[i] = min(minc[i], v[i])
+                                    maxc[i] = max(maxc[i], v[i])
+                        center = mathutils.Vector([(minc[0] + maxc[0]) / 2, (minc[1] + maxc[1]) / 2, (minc[2] + maxc[2]) / 2])
+                    else:
+                        bbox = [armature_obj.matrix_world @ mathutils.Vector(c) for c in armature_obj.bound_box]
+                        minc = [min([v[i] for v in bbox]) for i in range(3)]
+                        maxc = [max([v[i] for v in bbox]) for i in range(3)]
+                        center = mathutils.Vector([(minc[0] + maxc[0]) / 2, (minc[1] + maxc[1]) / 2, (minc[2] + maxc[2]) / 2])
+
+                    vec = mathutils.Vector((maxc[0] - center.x, maxc[1] - center.y))
+                    if vec.length == 0:
+                        return None
+                    ang = math.degrees(math.atan2(vec.y, vec.x))
+                    return ang
+                except Exception:
+                    return None
+
+            baseline = None
+            for a in bpy.data.actions:
+                ang = action_angle(a)
+                if ang is not None:
+                    baseline = ang
+                    break
+            if baseline is None:
+                return
+
+            for a in bpy.data.actions:
+                ang = action_angle(a)
+                if ang is None:
+                    continue
+                diff = (ang - baseline + 180) % 360 - 180
+                nearest90 = round(diff / 90) * 90
+                if abs(diff - nearest90) <= 22:
+                    correction = int(-nearest90)
+                else:
+                    correction = 0
+                try:
+                    a['rotation_correction'] = correction
+                except Exception:
+                    pass
+        except Exception:
+            pass
     
     def _move_object_to_scene_root(self, obj):
         try:
@@ -378,9 +473,32 @@ class BlenderExporter:
         if not action:
             raise Exception(f"Animation '{animation_name}' not found")
             
-        if target_obj.type == 'ARMATURE':
-            target_obj.animation_data_create()
-            target_obj.animation_data.action = action
+        # Apply action to armature, with optional temporary rotation correction if stored on action
+        orig_matrix = None
+        try:
+            if target_obj.type == 'ARMATURE':
+                target_obj.animation_data_create()
+                # check for rotation correction stored on action
+                correction = 0
+                try:
+                    correction = int(action['rotation_correction']) if 'rotation_correction' in action else 0
+                except Exception:
+                    correction = 0
+                if correction:
+                    try:
+                        orig_matrix = target_obj.matrix_world.copy()
+                        rotm = mathutils.Matrix.Rotation(math.radians(correction), 4, 'Z')
+                        target_obj.matrix_world = rotm @ orig_matrix
+                    except Exception:
+                        orig_matrix = None
+                target_obj.animation_data.action = action
+        except Exception:
+            # fallback assignment
+            try:
+                target_obj.animation_data_create()
+                target_obj.animation_data.action = action
+            except Exception:
+                pass
             
         action_start = int(action.frame_range[0])
         action_end = int(action.frame_range[1])
@@ -415,6 +533,13 @@ class BlenderExporter:
             # Restore original format
             bpy.context.scene.render.image_settings.file_format = original_format
             
+        # Restore original armature matrix if we applied a correction
+        try:
+            if orig_matrix is not None and target_obj is not None:
+                target_obj.matrix_world = orig_matrix
+        except Exception:
+            pass
+
         return len(frames_to_export)
     
     def analyze_animation_bounds(self, target_object, animation_name, padding_enabled=True, padding_percent=20):
@@ -609,17 +734,58 @@ class ANIM_OT_prev_animation(Operator):
             return {'CANCELLED'}
             
         actions = list(bpy.data.actions)
+        # If there's only one animation, notify and don't change
+        if len(actions) == 1:
+            self.report({'INFO'}, "ONLY ONE!")
+            return {'CANCELLED'}
         current_index = actions.index(current_action) if current_action in actions else 0
-        prev_index = (current_index - 1) % len(actions)
-        
+        # If already at first animation, notify and do not wrap
+        if current_index == 0:
+            self.report({'INFO'}, "FIRST ANIMATION!")
+            return {'CANCELLED'}
+        prev_index = current_index - 1
+
         # Перемикаємо на попередню анімацію
         new_action = actions[prev_index]
         target_obj.animation_data.action = new_action
-        
+
+        # Make the armature active and select it so context.object refers to it
+        try:
+            for o in bpy.data.objects:
+                try:
+                    o.select_set(False)
+                except Exception:
+                    pass
+            target_obj.select_set(True)
+            bpy.context.view_layer.objects.active = target_obj
+        except Exception:
+            pass
+
+        # Apply the first frame of the new action so pose/rotation updates immediately
+        try:
+            start_f = int(new_action.frame_range[0])
+            bpy.context.scene.frame_set(start_f)
+            bpy.context.view_layer.update()
+        except Exception:
+            pass
+
         # Оновлюємо діапазон
         props = context.scene.anim_exporter
         props.start_frame = int(new_action.frame_range[0])
         props.end_frame = int(new_action.frame_range[1])
+
+        # Also update Blender scene timeline range so Sequencer/Timeline End matches the action
+        try:
+            bpy.context.scene.frame_start = props.start_frame
+            bpy.context.scene.frame_end = props.end_frame
+        except Exception:
+            pass
+
+        # Refresh camera preview to reposition camera if needed
+        try:
+            refresh_camera_preview(context)
+        except Exception:
+            pass
         
         self.report({'INFO'}, f"Switched to: {new_action.name}")
         return {'FINISHED'}
@@ -646,17 +812,58 @@ class ANIM_OT_next_animation(Operator):
             return {'CANCELLED'}
             
         actions = list(bpy.data.actions)
+        # If there's only one animation, notify and don't change
+        if len(actions) == 1:
+            self.report({'INFO'}, "ONLY ONE!")
+            return {'CANCELLED'}
         current_index = actions.index(current_action) if current_action in actions else 0
-        next_index = (current_index + 1) % len(actions)
-        
+        # If already at last animation, notify and do not wrap
+        if current_index == len(actions) - 1:
+            self.report({'INFO'}, "LATEST ANIMATION!")
+            return {'CANCELLED'}
+        next_index = current_index + 1
+
         # Перемикаємо на наступну анімацію
         new_action = actions[next_index]
         target_obj.animation_data.action = new_action
-        
+
+        # Make the armature active and select it so context.object refers to it
+        try:
+            for o in bpy.data.objects:
+                try:
+                    o.select_set(False)
+                except Exception:
+                    pass
+            target_obj.select_set(True)
+            bpy.context.view_layer.objects.active = target_obj
+        except Exception:
+            pass
+
+        # Apply the first frame of the new action so pose/rotation updates immediately
+        try:
+            start_f = int(new_action.frame_range[0])
+            bpy.context.scene.frame_set(start_f)
+            bpy.context.view_layer.update()
+        except Exception:
+            pass
+
         # Оновлюємо діапазон
         props = context.scene.anim_exporter
         props.start_frame = int(new_action.frame_range[0])
         props.end_frame = int(new_action.frame_range[1])
+
+        # Also update Blender scene timeline range so Sequencer/Timeline End matches the action
+        try:
+            bpy.context.scene.frame_start = props.start_frame
+            bpy.context.scene.frame_end = props.end_frame
+        except Exception:
+            pass
+
+        # Refresh camera preview to reposition camera if needed
+        try:
+            refresh_camera_preview(context)
+        except Exception:
+            pass
         
         self.report({'INFO'}, f"Switched to: {new_action.name}")
         return {'FINISHED'}
@@ -680,9 +887,15 @@ class ANIM_OT_export_frames(Operator):
         try:
             exporter = BlenderExporter()
             
+            # Find the armature that holds the currently selected action (as set by the Prev/Next operators)
             action = None
-            if context.object and context.object.animation_data:
-                action = context.object.animation_data.action
+            target_arm = None
+            for obj in bpy.data.objects:
+                if obj.type == 'ARMATURE' and obj.animation_data and obj.animation_data.action:
+                    target_arm = obj
+                    action = obj.animation_data.action
+                    break
+            # Fallback to the first action if none found on an armature
             if not action and bpy.data.actions:
                 action = bpy.data.actions[0]
                 
@@ -735,9 +948,15 @@ class ANIM_OT_export_spritesheet(Operator):
         try:
             exporter = BlenderExporter()
             
+            # Find the armature that holds the currently selected action (as set by the Prev/Next operators)
             action = None
-            if context.object and context.object.animation_data:
-                action = context.object.animation_data.action
+            target_arm = None
+            for obj in bpy.data.objects:
+                if obj.type == 'ARMATURE' and obj.animation_data and obj.animation_data.action:
+                    target_arm = obj
+                    action = obj.animation_data.action
+                    break
+            # Fallback to the first action if none found on an armature
             if not action and bpy.data.actions:
                 action = bpy.data.actions[0]
                 
@@ -836,7 +1055,7 @@ class ANIM_OT_export_spritesheet(Operator):
                             for x in range(size):
                                 src_idx = (y * size + x) * 4
                                 dst_x = col * size + x
-                                # Place row 0 at top without flipping the frame vertically.
+                                # Place row 0 at top (Blender images use bottom-left origin): map row 0 to top row
                                 dst_y = (rows - 1 - row) * size + y
                                 dst_idx = (dst_y * spritesheet_width + dst_x) * 4
                                 if dst_idx + 3 < len(pixels) and src_idx + 3 < len(frame_pixels):
@@ -970,7 +1189,51 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             self.setup_imported_objects()
             # Remove default Collection not used by the add-on
             self.remove_default_collection()
+            # Analyze imported actions for rotation corrections (help fix GLB misaligned actions)
+            try:
+                exporter = BlenderExporter()
+                exporter.analyze_and_store_action_rotations()
+            except Exception:
+                pass
             self.set_animation_frame_count(context)
+            # Ensure the first or armature-held action is assigned and timeline ranges are set
+            try:
+                props = context.scene.anim_exporter
+                action = None
+                target_arm = None
+                for obj in bpy.data.objects:
+                    if obj.type == 'ARMATURE' and obj.animation_data and obj.animation_data.action:
+                        target_arm = obj
+                        action = obj.animation_data.action
+                        break
+                if not action and bpy.data.actions:
+                    action = bpy.data.actions[0]
+                if action:
+                    props.start_frame = int(action.frame_range[0])
+                    props.end_frame = int(action.frame_range[1])
+                    try:
+                        bpy.context.scene.frame_start = props.start_frame
+                        bpy.context.scene.frame_end = props.end_frame
+                    except Exception:
+                        pass
+                    if target_arm:
+                        try:
+                            # select and activate armature
+                            for o in bpy.data.objects:
+                                try:
+                                    o.select_set(False)
+                                except Exception:
+                                    pass
+                            target_arm.select_set(True)
+                            bpy.context.view_layer.objects.active = target_arm
+                            target_arm.animation_data_create()
+                            target_arm.animation_data.action = action
+                            bpy.context.scene.frame_set(props.start_frame)
+                            bpy.context.view_layer.update()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             # Create/position camera immediately for live preview
             refresh_camera_preview(context)
             self.report({'INFO'}, f"Import completed")
