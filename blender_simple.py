@@ -635,6 +635,12 @@ class AnimationExporterProperties(PropertyGroup):
         name="Export Name",
         default=""
     )
+
+    clean_import: bpy.props.BoolProperty(
+        name="Clean import",
+        default=True,
+        description="When enabled, remove Empty/extra objects and normalize scene after import; when disabled, import model as-is"
+    )
     
     sprite_columns: IntProperty(
         name="Columns",
@@ -1186,9 +1192,13 @@ class ANIM_OT_import_model(Operator, ImportHelper):
             else:
                 self.import_single_file(self.filepath)
                 
-            self.setup_imported_objects()
-            # Remove default Collection not used by the add-on
-            self.remove_default_collection()
+            # Respect clean_import flag from UI
+            props = context.scene.anim_exporter if hasattr(context.scene, 'anim_exporter') else None
+            clean_import = True if props is None else getattr(props, 'clean_import', True)
+            self.setup_imported_objects(clean_import)
+            # Remove default Collection not used by the add-on only when clean_import enabled
+            if clean_import:
+                self.remove_default_collection()
             # Analyze imported actions for rotation corrections (help fix GLB misaligned actions)
             try:
                 exporter = BlenderExporter()
@@ -1259,7 +1269,7 @@ class ANIM_OT_import_model(Operator, ImportHelper):
         except Exception:
             pass
     
-    def setup_imported_objects(self):
+    def setup_imported_objects(self, clean_import=True):
         # Normalize scale only for objects smaller than 1.0
         for obj in bpy.data.objects:
             if obj.type in ['MESH', 'ARMATURE']:
@@ -1345,20 +1355,22 @@ class ANIM_OT_import_model(Operator, ImportHelper):
                 for node in nodes_to_remove:
                     nodes.remove(node)
                     
-        # Видаляємо сміття після GLB/GLTF імпорту
-        objects_to_remove = []
-        for obj in bpy.data.objects:
-            if ('glTF_not_exported' in obj.name or 'Icosphere' in obj.name):
-                objects_to_remove.append(obj)
-        
-        for obj in objects_to_remove:
-            bpy.data.objects.remove(obj, do_unlink=True)
+        # Видаляємо сміття після GLB/GLTF імпорту (only when clean_import enabled)
+        if clean_import:
+            objects_to_remove = []
+            for obj in bpy.data.objects:
+                if ('glTF_not_exported' in obj.name or 'Icosphere' in obj.name):
+                    objects_to_remove.append(obj)
+            
+            for obj in objects_to_remove:
+                bpy.data.objects.remove(obj, do_unlink=True)
             
         # Налаштування viewport вже зроблені при стартупі
         # (Material Preview і приховання кісток)
                 
-        # Витягуємо модель з ієрархії Empty об'єктів (тільки для GLB)
-        self.flatten_hierarchy_and_center()
+        # Витягуємо модель з ієрархії Empty об'єктів (тільки для GLB) — only when clean_import enabled
+        if clean_import:
+            self.flatten_hierarchy_and_center()
     
     def remove_default_collection(self):
         """Flatten objects to Scene Collection and remove default 'Collection' child if possible."""
@@ -1517,7 +1529,7 @@ class ANIM_PT_exporter_panel(Panel):
         
         box = layout.box()
         box.label(text="Import Animation:")
-        
+        box.prop(props, "clean_import")
         box.operator("anim.import_model", text="Import FBX/GLB", icon='IMPORT')
             
         # Frame settings block
