@@ -3,10 +3,16 @@ chcp 65001 >nul
 echo Starting 3D to 2D Animation Exporter...
 echo.
 
-REM Find Blender installation
+REM Set variable for the Blender path
 set "BLENDER_PATH="
 
-REM Check Program Files directories
+REM First, check the specific directory requested by the user
+if exist "C:\Program Files\Blender\blender.exe" (
+    set "BLENDER_PATH=C:\Program Files\Blender\blender.exe"
+    goto FOUND_BLENDER
+)
+
+REM If not found, check standard Program Files directories
 for /d %%i in ("%ProgramFiles%\Blender Foundation\Blender *") do (
     if exist "%%i\blender.exe" (
         set "BLENDER_PATH=%%i\blender.exe"
@@ -22,7 +28,7 @@ for /d %%i in ("%ProgramFiles(x86)%\Blender Foundation\Blender *") do (
     )
 )
 
-REM Check registry for installed versions
+REM Check the registry for installed versions (system-wide)
 for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\blender.exe" /ve 2^>nul ^| find "REG_SZ"') do (
     if exist "%%~b" (
         set "BLENDER_PATH=%%~b"
@@ -30,7 +36,7 @@ for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVe
     )
 )
 
-REM Check for per-user installation
+REM Check the registry for per-user installation
 for /f "tokens=2*" %%a in ('reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\blender.exe" /ve 2^>nul ^| find "REG_SZ"') do (
     if exist "%%~b" (
         set "BLENDER_PATH=%%~b"
@@ -45,7 +51,7 @@ if "%BLENDER_PATH%"=="" (
     echo Please do one of the following:
     echo 1. Install Blender from https://www.blender.org/download/
     echo 2. Or run this script with the path to Blender as an argument:
-    echo    run_blender.bat "C:\Path\To\Blender\blender.exe"
+    echo    blender_launcher.bat "C:\Path\To\Blender\blender.exe"
     echo.
     pause
     exit /b 1
@@ -57,8 +63,6 @@ echo Found Blender: "%BLENDER_PATH%"
 REM Blender found and ready to use
 echo Starting application...
 echo.
-
-REM Run Blender with our script
 "%BLENDER_PATH%" --python "%~dp0blender_simple.py"
 
 echo.
